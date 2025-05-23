@@ -59,6 +59,8 @@ export async function generateClaudeCodeText({
   temperature
 }) {
   log('debug', 'Generating text with local Claude Code CLI');
+  log('debug', `Parameters: maxTokens=${maxTokens}, temperature=${temperature}`);
+  log('debug', `Messages array length: ${messages?.length || 0}`);
   
   // Check if we have a system message and a user message
   const systemMessage = messages.find(msg => msg.role === 'system')?.content || '';
@@ -67,6 +69,9 @@ export async function generateClaudeCodeText({
   if (userMessages.length === 0) {
     throw new Error('At least one user message is required');
   }
+  
+  log('debug', `System message length: ${systemMessage.length}`);
+  log('debug', `User messages count: ${userMessages.length}`);
   
   // Get the most recent user message
   const userMessage = userMessages[userMessages.length - 1].content;
@@ -80,7 +85,15 @@ export async function generateClaudeCodeText({
   // For text generation, use text format; for objects, we'll use a separate approach
   const args = ['--print', '--model', 'sonnet'];
   
+  // Add higher token limits for object generation if this is for structured output
+  if (maxTokens && maxTokens > 4000) {
+    log('debug', `Using higher token limit: ${maxTokens}`);
+  }
+  
   // Execute Claude Code CLI
+  log('debug', `Executing: ${claudeCodePath} ${args.join(' ')}`);
+  log('debug', `Prompt content preview: ${promptContent.substring(0, 100)}...`);
+  
   return new Promise((resolve, reject) => {
     const claudeProcess = spawn(claudeCodePath, args, { stdio: 'pipe' });
     
@@ -100,8 +113,22 @@ export async function generateClaudeCodeText({
     });
     
     claudeProcess.on('close', (code) => {
+      log('debug', `Claude CLI process closed with code ${code}`);
+      log('debug', `Stdout length: ${stdout.length}, Stderr length: ${stderr.length}`);
+      
       if (code === 0) {
-        resolve(stdout.trim());
+        const result = stdout.trim();
+        if (!result) {
+          log('error', 'Claude CLI returned empty response');
+          log('debug', `Full stderr: ${stderr}`);
+          reject(new Error('Claude Code CLI returned empty response'));
+        } else {
+          log('debug', `Returning text result of length: ${result.length}`);
+          // Return in the expected format with mainResult wrapper
+          resolve({
+            mainResult: result
+          });
+        }
       } else {
         reject(new Error(`Claude Code CLI failed with code ${code}: ${stderr}`));
       }
@@ -127,9 +154,11 @@ export async function generateClaudeCodeText({
 export async function streamClaudeCodeText(params) {
   // For now, we're implementing this as a non-streaming function
   // that returns in the format expected by the caller
-  const text = await generateClaudeCodeText(params);
+  const response = await generateClaudeCodeText(params);
+  const text = response.mainResult;
   
   return {
+    mainResult: text,
     textStream: new ReadableStream({
       start(controller) {
         controller.enqueue(text);
@@ -169,8 +198,10 @@ export async function generateClaudeCodeObject({
   
   // Prepare a modified system prompt that instructs Claude to output JSON
   let systemPrompt = messages.find(msg => msg.role === 'system')?.content || '';
-  systemPrompt += `\n\nIMPORTANT: Your response must be ONLY valid JSON that matches this schema: ${JSON.stringify(schema._def.shape())}.\n`;
-  systemPrompt += `The response should be a single valid JSON object for ${objectName} with no other text, no markdown code blocks, no explanations.`;
+  systemPrompt += `\n\nIMPORTANT: You must output ONLY valid JSON. No markdown, no code blocks, no explanations.\n`;
+  systemPrompt += `Output a single JSON object for ${objectName} that matches this exact structure:\n`;
+  systemPrompt += JSON.stringify(schema._def.shape(), null, 2) + '\n';
+  systemPrompt += `Remember: Output ONLY the JSON object starting with { and ending with }. No other text.`;
   
   // Create a modified messages array with our JSON-specific system prompt
   const jsonMessages = [
@@ -192,33 +223,133 @@ export async function generateClaudeCodeObject({
         temperature
       });
       
-      log('debug', `Raw response from Claude: ${jsonText.substring(0, 500)}...`);
+      log('debug', `Raw response from Claude (attempt ${attempts}): ${jsonText.substring(0, 500)}...`);
+      
+      // Write full response to temp file for debugging
+      const debugFile = path.join(os.tmpdir(), `claude-response-${uuidv4()}.txt`);
+      fs.writeFileSync(debugFile, jsonText);
+      log('debug', `Full response written to: ${debugFile}`);
       
       // Try to extract JSON from the response
       let jsonObject;
+      let cleanedText = jsonText.trim();
       
-      // First try to parse the entire response as JSON
+      // Remove common markdown code block wrappers if present
+      cleanedText = cleanedText.replace(/^```json\s*/i, '').replace(/\s*```$/i, '');
+      cleanedText = cleanedText.replace(/^```\s*/i, '').replace(/\s*```$/i, '');
+      
+      // Fix improperly escaped quotes and malformed JSON
+      // This handles cases where Claude returns malformed JSON with mixed escaping
+      cleanedText = cleanedText.replace(/\\"/g, '"');
+      
+      // Fix specific pattern we're seeing: \"description",: should be "description":
+      cleanedText = cleanedText.replace(/"([^"]*)"\\?,:/g, '"$1":');
+      
+      // Fix any remaining backslashes before quotes
+      cleanedText = cleanedText.replace(/\\(["])/g, '$1');
+      
+      // First try to parse the cleaned response as JSON
       try {
-        jsonObject = JSON.parse(jsonText);
+        jsonObject = JSON.parse(cleanedText);
       } catch (e) {
-        // If that fails, try to extract JSON from the response
-        const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
+        // If that fails, try to extract JSON using various patterns
+        let jsonMatch = null;
+        
+        // Try to find JSON object starting with { and ending with }
+        const patterns = [
+          /\{[\s\S]*\}/,  // Any JSON object
+          /\{\s*"tasks"[\s\S]*\}/,  // Specifically looking for tasks object
+          /\{\s*"[\w]+"[\s\S]*\}/  // Any object starting with a quoted key
+        ];
+        
+        for (const pattern of patterns) {
+          jsonMatch = cleanedText.match(pattern);
+          if (jsonMatch) break;
+        }
+        
         if (!jsonMatch) {
+          // Log more details for debugging
+          log('error', `Could not find JSON in response. First 200 chars: ${cleanedText.substring(0, 200)}`);
+          log('error', `Last 200 chars: ${cleanedText.substring(Math.max(0, cleanedText.length - 200))}`);
+          
+          // Check if the response looks like it was truncated
+          if (cleanedText.length > 8000 && !cleanedText.trim().endsWith('}')) {
+            throw new Error('Response appears to be truncated - consider reducing the number of tasks or complexity');
+          }
+          
           throw new Error('Response did not contain valid JSON object');
         }
-        jsonObject = JSON.parse(jsonMatch[0]);
+        
+        try {
+          jsonObject = JSON.parse(jsonMatch[0]);
+        } catch (parseError) {
+          // Try to fix common JSON issues
+          let fixedJson = jsonMatch[0];
+          
+          // Fix improperly escaped quotes first
+          fixedJson = fixedJson.replace(/\\"/g, '"');
+          
+          // Fix specific malformed patterns like \"key",: to "key":
+          fixedJson = fixedJson.replace(/"([^"]*)"\\?,:/g, '"$1":');
+          fixedJson = fixedJson.replace(/\\(["])/g, '$1');
+          
+          // Fix trailing commas
+          fixedJson = fixedJson.replace(/,\s*}/g, '}').replace(/,\s*]/g, ']');
+          
+          // Fix line breaks in string values (replace actual newlines with \n)
+          fixedJson = fixedJson.replace(/"([^"]*)"/g, (match, content) => {
+            return '"' + content.replace(/\n/g, '\\n').replace(/\r/g, '\\r') + '"';
+          });
+          
+          try {
+            jsonObject = JSON.parse(fixedJson);
+          } catch (fixError) {
+            // Extract error position info if available
+            const errorMatch = fixError.message.match(/position (\d+)/);
+            if (errorMatch) {
+              const position = parseInt(errorMatch[1]);
+              const contextStart = Math.max(0, position - 50);
+              const contextEnd = Math.min(fixedJson.length, position + 50);
+              const errorContext = fixedJson.substring(contextStart, contextEnd);
+              const relativePos = position - contextStart;
+              log('error', `JSON parse error at position ${position}:`);
+              log('error', `Context: ${errorContext}`);
+              log('error', `         ${' '.repeat(relativePos)}^`);
+              
+              // Check if this looks like a truncation issue
+              if (position > fixedJson.length - 100) {
+                log('error', 'Error occurs near end of response - likely truncated');
+                throw new Error('Response appears to be truncated. Try reducing --num-tasks or simplifying the PRD.');
+              }
+            }
+            log('error', `Failed to parse even after fixes. JSON fragment: ${fixedJson.substring(0, 200)}`);
+            log('error', `Full response length: ${jsonText?.length || 0} characters`);
+            throw new Error(`JSON parsing failed: ${parseError.message}`);
+          }
+        }
       }
       
       // Validate against schema
       const validatedObject = schema.parse(jsonObject);
       
-      return validatedObject;
+      log('debug', `Successfully validated object on attempt ${attempts}`);
+      
+      // Return in the expected format with mainResult wrapper
+      return {
+        mainResult: validatedObject
+      };
     } catch (error) {
       lastError = error;
       log('warn', `Attempt ${attempts} failed: ${error.message}`);
       
+      // Add the raw response to the error for better debugging
+      if (attempts === maxRetries) {
+        log('error', `All attempts failed. Last raw response: ${jsonText?.substring(0, 1000) || 'No response'}`);
+      }
+      
       // Only retry parsing/validation errors, not execution errors
-      if (error.message.includes('JSON') || error.message.includes('schema')) {
+      if (error.message.includes('JSON') || error.message.includes('parse') || 
+          error.message.includes('schema') || error.message.includes('Expected')) {
         continue;
       } else {
         throw error; // Don't retry execution errors

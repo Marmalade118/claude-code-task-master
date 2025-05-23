@@ -15,7 +15,7 @@ import {
 } from '../utils.js';
 
 import { generateObjectService } from '../ai-services-unified.js';
-import { getDebugFlag } from '../config-manager.js';
+import { getDebugFlag, getMainProvider } from '../config-manager.js';
 import generateTaskFiles from './generate-task-files.js';
 import { displayAiUsageSummary } from '../ui.js';
 
@@ -90,7 +90,23 @@ async function parsePRD(prdPath, tasksPath, numTasks, options = {}) {
 		}
 	};
 
-	report(`Parsing PRD file: ${prdPath}, Force: ${force}, Append: ${append}`);
+	// Check if we should auto-enable append mode for claude-code provider
+	const currentProvider = getMainProvider(projectRoot);
+	const isClaudeCode = currentProvider === 'claude-code';
+	let useAppend = append;
+	let useForce = force;
+	let tasksPerBatch = numTasks; // Start with the requested number of tasks
+	
+	if (isClaudeCode && numTasks >= 10 && !append && !force) {
+		report(
+			`Detected claude-code provider with ${numTasks} tasks. Auto-enabling batch mode with append.`,
+			'info'
+		);
+		useAppend = true;
+		tasksPerBatch = Math.min(6, numTasks); // Generate max 6 tasks per batch for claude-code
+	}
+
+	report(`Parsing PRD file: ${prdPath}, Force: ${useForce}, Append: ${useAppend}, Tasks per batch: ${tasksPerBatch}`);
 
 	let existingTasks = [];
 	let nextId = 1;
@@ -99,7 +115,7 @@ async function parsePRD(prdPath, tasksPath, numTasks, options = {}) {
 	try {
 		// Handle file existence and overwrite/append logic
 		if (fs.existsSync(tasksPath)) {
-			if (append) {
+			if (useAppend) {
 				report(
 					`Append mode enabled. Reading existing tasks from ${tasksPath}`,
 					'info'
@@ -121,7 +137,7 @@ async function parsePRD(prdPath, tasksPath, numTasks, options = {}) {
 					);
 					existingTasks = []; // Reset if read fails
 				}
-			} else if (!force) {
+			} else if (!useForce) {
 				// Not appending and not forcing overwrite
 				const overwriteError = new Error(
 					`Output file ${tasksPath} already exists. Use --force to overwrite or --append.`
@@ -148,9 +164,30 @@ async function parsePRD(prdPath, tasksPath, numTasks, options = {}) {
 			throw new Error(`Input file ${prdPath} is empty or could not be read.`);
 		}
 
+		// Handle batching for claude-code provider
+		if (isClaudeCode && numTasks >= 10 && tasksPerBatch < numTasks) {
+			return await parsePRDInBatches(
+				prdPath, 
+				tasksPath, 
+				numTasks, 
+				tasksPerBatch, 
+				prdContent, 
+				existingTasks, 
+				nextId, 
+				{
+					reportProgress,
+					mcpLog,
+					session,
+					projectRoot,
+					useForce,
+					useAppend: true // Always use append for batches after the first
+				}
+			);
+		}
+
 		// Build system prompt for PRD parsing
 		const systemPrompt = `You are an AI assistant specialized in analyzing Product Requirements Documents (PRDs) and generating a structured, logically ordered, dependency-aware and sequenced list of development tasks in JSON format.
-Analyze the provided PRD content and generate approximately ${numTasks} top-level development tasks. If the complexity or the level of detail of the PRD is high, generate more tasks relative to the complexity of the PRD
+Analyze the provided PRD content and generate approximately ${tasksPerBatch} top-level development tasks. If the complexity or the level of detail of the PRD is high, generate more tasks relative to the complexity of the PRD
 Each task should represent a logical unit of work needed to implement the requirements and focus on the most direct and effective way to implement the requirements without unnecessary complexity or overengineering. Include pseudo-code, implementation details, and test strategy for each task. Find the most up to date information to implement each task.
 Assign sequential IDs starting from ${nextId}. Infer title, description, details, and test strategy for each task based *only* on the PRD content.
 Set status to 'pending', dependencies to an empty array [], and priority to 'medium' initially for all tasks.
@@ -169,7 +206,7 @@ Each task should follow this JSON structure:
 }
 
 Guidelines:
-1. Unless complexity warrants otherwise, create exactly ${numTasks} tasks, numbered sequentially starting from ${nextId}
+1. Unless complexity warrants otherwise, create exactly ${tasksPerBatch} tasks, numbered sequentially starting from ${nextId}
 2. Each task should be atomic and focused on a single responsibility following the most up to date best practices and standards
 3. Order tasks logically - consider dependencies and implementation sequence
 4. Early tasks should focus on setup, core functionality first, then advanced features
@@ -182,13 +219,13 @@ Guidelines:
 11. Always aim to provide the most direct path to implementation, avoiding over-engineering or roundabout approaches`;
 
 		// Build user prompt with PRD content
-		const userPrompt = `Here's the Product Requirements Document (PRD) to break down into approximately ${numTasks} tasks, starting IDs from ${nextId}:\n\n${prdContent}\n\n
+		const userPrompt = `Here's the Product Requirements Document (PRD) to break down into approximately ${tasksPerBatch} tasks, starting IDs from ${nextId}:\n\n${prdContent}\n\n
 
 		Return your response in this format:
 {
     "tasks": [
         {
-            "id": 1,
+            "id": ${nextId},
             "title": "Setup Project Repository",
             "description": "...",
             ...
@@ -197,7 +234,7 @@ Guidelines:
     ],
     "metadata": {
         "projectName": "PRD Implementation",
-        "totalTasks": ${numTasks},
+        "totalTasks": ${tasksPerBatch},
         "sourceFile": "${prdPath}",
         "generatedAt": "YYYY-MM-DD"
     }
@@ -355,6 +392,229 @@ Guidelines:
 			throw error; // Re-throw for JSON output
 		}
 	}
+}
+
+/**
+ * Parse PRD in batches for claude-code provider to avoid response truncation
+ */
+async function parsePRDInBatches(prdPath, tasksPath, totalTasks, tasksPerBatch, prdContent, existingTasks, startId, options) {
+	const { reportProgress, mcpLog, session, projectRoot, useForce } = options;
+	const logFn = mcpLog || {
+		info: (...args) => log('info', ...args),
+		warn: (...args) => log('warn', ...args),
+		error: (...args) => log('error', ...args),
+		success: (...args) => log('success', ...args)
+	};
+
+	const report = (message, level = 'info') => {
+		if (mcpLog) {
+			mcpLog[level](message);
+		} else {
+			log(level, message);
+		}
+	};
+
+	let currentId = startId;
+	let remainingTasks = totalTasks;
+	let batchNumber = 1;
+	let isFirstBatch = true;
+
+	report(`Starting batch processing: ${totalTasks} total tasks in batches of ${tasksPerBatch}`, 'info');
+
+	while (remainingTasks > 0) {
+		const currentBatchSize = Math.min(tasksPerBatch, remainingTasks);
+		
+		report(`Processing batch ${batchNumber}: ${currentBatchSize} tasks (starting from ID ${currentId})`, 'info');
+
+		// For batches after the first, read existing tasks to get the current nextId
+		if (!isFirstBatch) {
+			const existingData = readJSON(tasksPath);
+			if (existingData && Array.isArray(existingData.tasks)) {
+				existingTasks = existingData.tasks;
+				if (existingTasks.length > 0) {
+					currentId = Math.max(...existingTasks.map((t) => t.id || 0)) + 1;
+				}
+			}
+		}
+
+		// Call the original parsePRD function for this batch
+		await parsePRDSingleBatch(
+			prdPath,
+			tasksPath,
+			currentBatchSize,
+			currentId,
+			prdContent,
+			existingTasks,
+			{
+				reportProgress,
+				mcpLog,
+				session,
+				projectRoot,
+				useForce: isFirstBatch ? useForce : false,
+				useAppend: !isFirstBatch, // First batch might overwrite, rest append
+				tasksPerBatch: currentBatchSize // Pass the actual batch size
+			}
+		);
+
+		remainingTasks -= currentBatchSize;
+		batchNumber++;
+		isFirstBatch = false;
+
+		if (remainingTasks > 0) {
+			report(`Batch ${batchNumber - 1} completed. ${remainingTasks} tasks remaining.`, 'info');
+		}
+	}
+
+	report(`All ${totalTasks} tasks generated successfully across ${batchNumber - 1} batches!`, 'success');
+}
+
+/**
+ * Single batch processing function (extracted from main parsePRD logic)
+ */
+async function parsePRDSingleBatch(prdPath, tasksPath, numTasks, nextId, prdContent, existingTasks, options) {
+	const { reportProgress, mcpLog, session, projectRoot, useForce, useAppend, tasksPerBatch } = options;
+	const actualTasksPerBatch = tasksPerBatch || numTasks; // Fallback to numTasks if not provided
+	const isMCP = !!mcpLog;
+	const outputFormat = isMCP ? 'json' : 'text';
+
+	const logFn = mcpLog || {
+		info: (...args) => log('info', ...args),
+		warn: (...args) => log('warn', ...args),
+		error: (...args) => log('error', ...args),
+		success: (...args) => log('success', ...args)
+	};
+
+	// Build system prompt for PRD parsing
+	const systemPrompt = `You are an AI assistant specialized in analyzing Product Requirements Documents (PRDs) and generating a structured, logically ordered, dependency-aware and sequenced list of development tasks in JSON format.
+Analyze the provided PRD content and generate approximately ${actualTasksPerBatch} top-level development tasks. If the complexity or the level of detail of the PRD is high, generate more tasks relative to the complexity of the PRD
+Each task should represent a logical unit of work needed to implement the requirements and focus on the most direct and effective way to implement the requirements without unnecessary complexity or overengineering. Include pseudo-code, implementation details, and test strategy for each task. Find the most up to date information to implement each task.
+Assign sequential IDs starting from ${nextId}. Infer title, description, details, and test strategy for each task based *only* on the PRD content.
+Set status to 'pending', dependencies to an empty array [], and priority to 'medium' initially for all tasks.
+Respond ONLY with a valid JSON object containing a single key "tasks", where the value is an array of task objects adhering to the provided Zod schema. Do not include any explanation or markdown formatting.
+
+Each task should follow this JSON structure:
+{
+	"id": number,
+	"title": string,
+	"description": string,
+	"status": "pending",
+	"dependencies": number[] (IDs of tasks this depends on),
+	"priority": "high" | "medium" | "low",
+	"details": string (implementation details),
+	"testStrategy": string (validation approach)
+}
+
+Guidelines:
+1. Unless complexity warrants otherwise, create exactly ${actualTasksPerBatch} tasks, numbered sequentially starting from ${nextId}
+2. Each task should be atomic and focused on a single responsibility following the most up to date best practices and standards
+3. Order tasks logically - consider dependencies and implementation sequence
+4. Early tasks should focus on setup, core functionality first, then advanced features
+5. Include clear validation/testing approach for each task
+6. Set appropriate dependency IDs (a task can only depend on tasks with lower IDs, potentially including existing tasks with IDs less than ${nextId} if applicable)
+7. Assign priority (high/medium/low) based on criticality and dependency order
+8. Include detailed implementation guidance in the "details" field
+9. If the PRD contains specific requirements for libraries, database schemas, frameworks, tech stacks, or any other implementation details, STRICTLY ADHERE to these requirements in your task breakdown and do not discard them under any circumstance
+10. Focus on filling in any gaps left by the PRD or areas that aren't fully specified, while preserving all explicit requirements
+11. Always aim to provide the most direct path to implementation, avoiding over-engineering or roundabout approaches`;
+
+	// Build user prompt with PRD content
+	const userPrompt = `Here's the Product Requirements Document (PRD) to break down into approximately ${actualTasksPerBatch} tasks, starting IDs from ${nextId}:\n\n${prdContent}\n\n
+
+Return your response in this format:
+{
+    "tasks": [
+        {
+            "id": ${nextId},
+            "title": "Setup Project Repository",
+            "description": "...",
+            ...
+        },
+        ...
+    ],
+    "metadata": {
+        "projectName": "PRD Implementation",
+        "totalTasks": ${actualTasksPerBatch},
+        "sourceFile": "${prdPath}",
+        "generatedAt": "YYYY-MM-DD"
+    }
+}`;
+
+	// Call the unified AI service
+	const aiServiceResponse = await generateObjectService({
+		role: 'main',
+		session: session,
+		projectRoot: projectRoot,
+		schema: prdResponseSchema,
+		objectName: 'tasks_data',
+		systemPrompt: systemPrompt,
+		prompt: userPrompt,
+		commandName: 'parse-prd',
+		outputType: isMCP ? 'mcp' : 'cli'
+	});
+
+	// Process the response (same logic as main function)
+	let generatedData = null;
+	if (aiServiceResponse?.mainResult) {
+		if (
+			typeof aiServiceResponse.mainResult === 'object' &&
+			aiServiceResponse.mainResult !== null &&
+			'tasks' in aiServiceResponse.mainResult
+		) {
+			generatedData = aiServiceResponse.mainResult;
+		} else if (
+			typeof aiServiceResponse.mainResult.object === 'object' &&
+			aiServiceResponse.mainResult.object !== null &&
+			'tasks' in aiServiceResponse.mainResult.object
+		) {
+			generatedData = aiServiceResponse.mainResult.object;
+		}
+	}
+
+	if (!generatedData || !Array.isArray(generatedData.tasks)) {
+		logFn.error(
+			`Internal Error: generateObjectService returned unexpected data structure: ${JSON.stringify(generatedData)}`
+		);
+		throw new Error('AI service returned unexpected data structure after validation.');
+	}
+
+	let currentId = nextId;
+	const taskMap = new Map();
+	const processedNewTasks = generatedData.tasks.map((task) => {
+		const newId = currentId++;
+		taskMap.set(task.id, newId);
+		return {
+			...task,
+			id: newId,
+			status: 'pending',
+			priority: task.priority || 'medium',
+			dependencies: Array.isArray(task.dependencies) ? task.dependencies : [],
+			subtasks: []
+		};
+	});
+
+	// Remap dependencies for the NEWLY processed tasks
+	processedNewTasks.forEach((task) => {
+		task.dependencies = task.dependencies
+			.map((depId) => taskMap.get(depId))
+			.filter(
+				(newDepId) =>
+					newDepId != null &&
+					newDepId < task.id &&
+					(findTaskById(existingTasks, newDepId) ||
+						processedNewTasks.some((t) => t.id === newDepId))
+			);
+	});
+
+	const finalTasks = useAppend
+		? [...existingTasks, ...processedNewTasks]
+		: processedNewTasks;
+	const outputData = { tasks: finalTasks };
+
+	// Write the final tasks to the file
+	writeJSON(tasksPath, outputData);
+	logFn.success(
+		`Successfully ${useAppend ? 'appended' : 'generated'} ${processedNewTasks.length} tasks in ${tasksPath}`
+	);
 }
 
 export default parsePRD;
