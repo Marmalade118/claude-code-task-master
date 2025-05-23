@@ -20,12 +20,12 @@ function getClaudeCodePath() {
   // Define common installation paths
   const possiblePaths = [
     // Path when installed globally with npm
-    '/usr/local/bin/claude-code',
+    '/usr/local/bin/claude',
     // Path for specific user installations
-    path.join(os.homedir(), '.npm-global/bin/claude-code'),
-    path.join(os.homedir(), 'node_modules/.bin/claude-code'),
+    path.join(os.homedir(), '.npm-global/bin/claude'),
+    path.join(os.homedir(), 'node_modules/.bin/claude'),
     // Default to just the command name, relying on PATH
-    'claude-code'
+    'claude'
   ];
 
   // Try to find the executable
@@ -41,7 +41,7 @@ function getClaudeCodePath() {
   }
 
   // Default to command name if we can't find it
-  return 'claude-code';
+  return 'claude';
 }
 
 /**
@@ -71,80 +71,46 @@ export async function generateClaudeCodeText({
   // Get the most recent user message
   const userMessage = userMessages[userMessages.length - 1].content;
   
-  // Create a temporary file for the prompt
-  const tempDir = os.tmpdir();
-  const tempPromptFile = path.join(tempDir, `claude_prompt_${uuidv4()}.txt`);
+  // Combine system message and user message
+  const promptContent = systemMessage ? `${systemMessage}\n\n${userMessage}` : userMessage;
   
-  try {
-    // Write the prompt to the temp file
-    const promptContent = systemMessage ? `${systemMessage}\n\n${userMessage}` : userMessage;
-    fs.writeFileSync(tempPromptFile, promptContent, 'utf8');
+  // Prepare Claude Code CLI command
+  const claudeCodePath = getClaudeCodePath();
+  // Use --print for non-interactive output and specify model
+  // For text generation, use text format; for objects, we'll use a separate approach
+  const args = ['--print', '--model', 'sonnet'];
+  
+  // Execute Claude Code CLI
+  return new Promise((resolve, reject) => {
+    const claudeProcess = spawn(claudeCodePath, args, { stdio: 'pipe' });
     
-    // Prepare Claude Code CLI command
-    const claudeCodePath = getClaudeCodePath();
-    const args = ['prompt', tempPromptFile];
+    let stdout = '';
+    let stderr = '';
     
-    // Add optional parameters if provided
-    if (temperature) {
-      args.push('--temperature', temperature.toString());
-    }
-    if (maxTokens) {
-      args.push('--max-tokens', maxTokens.toString());
-    }
+    // Write the prompt to stdin
+    claudeProcess.stdin.write(promptContent);
+    claudeProcess.stdin.end();
     
-    // Execute Claude Code CLI
-    return new Promise((resolve, reject) => {
-      const claudeProcess = spawn(claudeCodePath, args, { stdio: 'pipe' });
-      
-      let stdout = '';
-      let stderr = '';
-      
-      claudeProcess.stdout.on('data', (data) => {
-        stdout += data.toString();
-      });
-      
-      claudeProcess.stderr.on('data', (data) => {
-        stderr += data.toString();
-      });
-      
-      claudeProcess.on('close', (code) => {
-        // Clean up the temporary file
-        try {
-          fs.unlinkSync(tempPromptFile);
-        } catch (error) {
-          log('warn', `Failed to delete temporary prompt file: ${error.message}`);
-        }
-        
-        if (code === 0) {
-          resolve(stdout.trim());
-        } else {
-          reject(new Error(`Claude Code CLI failed with code ${code}: ${stderr}`));
-        }
-      });
-      
-      claudeProcess.on('error', (error) => {
-        // Clean up the temporary file
-        try {
-          fs.unlinkSync(tempPromptFile);
-        } catch (cleanupError) {
-          log('warn', `Failed to delete temporary prompt file: ${cleanupError.message}`);
-        }
-        
-        reject(new Error(`Failed to execute Claude Code CLI: ${error.message}`));
-      });
+    claudeProcess.stdout.on('data', (data) => {
+      stdout += data.toString();
     });
-  } catch (error) {
-    // Clean up the temporary file if it exists
-    try {
-      if (fs.existsSync(tempPromptFile)) {
-        fs.unlinkSync(tempPromptFile);
-      }
-    } catch (cleanupError) {
-      log('warn', `Failed to delete temporary prompt file: ${cleanupError.message}`);
-    }
     
-    throw error;
-  }
+    claudeProcess.stderr.on('data', (data) => {
+      stderr += data.toString();
+    });
+    
+    claudeProcess.on('close', (code) => {
+      if (code === 0) {
+        resolve(stdout.trim());
+      } else {
+        reject(new Error(`Claude Code CLI failed with code ${code}: ${stderr}`));
+      }
+    });
+    
+    claudeProcess.on('error', (error) => {
+      reject(new Error(`Failed to execute Claude Code CLI: ${error.message}`));
+    });
+  });
 }
 
 /**
@@ -203,8 +169,8 @@ export async function generateClaudeCodeObject({
   
   // Prepare a modified system prompt that instructs Claude to output JSON
   let systemPrompt = messages.find(msg => msg.role === 'system')?.content || '';
-  systemPrompt += `\n\nYour response must be valid JSON that matches this schema: ${schema.describe()}.\n`;
-  systemPrompt += `The response should be a single valid JSON object for ${objectName} with no other text.`;
+  systemPrompt += `\n\nIMPORTANT: Your response must be ONLY valid JSON that matches this schema: ${JSON.stringify(schema._def.shape())}.\n`;
+  systemPrompt += `The response should be a single valid JSON object for ${objectName} with no other text, no markdown code blocks, no explanations.`;
   
   // Create a modified messages array with our JSON-specific system prompt
   const jsonMessages = [
@@ -226,14 +192,22 @@ export async function generateClaudeCodeObject({
         temperature
       });
       
-      // Extract JSON from the response
-      const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        throw new Error('Response did not contain valid JSON object');
-      }
+      log('debug', `Raw response from Claude: ${jsonText.substring(0, 500)}...`);
       
-      // Parse the JSON
-      const jsonObject = JSON.parse(jsonMatch[0]);
+      // Try to extract JSON from the response
+      let jsonObject;
+      
+      // First try to parse the entire response as JSON
+      try {
+        jsonObject = JSON.parse(jsonText);
+      } catch (e) {
+        // If that fails, try to extract JSON from the response
+        const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) {
+          throw new Error('Response did not contain valid JSON object');
+        }
+        jsonObject = JSON.parse(jsonMatch[0]);
+      }
       
       // Validate against schema
       const validatedObject = schema.parse(jsonObject);
