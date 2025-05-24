@@ -217,11 +217,14 @@ export async function generateClaudeCodeObject({
     attempts++;
     try {
       // Get the text response
-      const jsonText = await generateClaudeCodeText({
+      const response = await generateClaudeCodeText({
         messages: jsonMessages,
         maxTokens,
         temperature
       });
+      
+      // Extract the text from the response object
+      const jsonText = response.mainResult;
       
       log('debug', `Raw response from Claude (attempt ${attempts}): ${jsonText.substring(0, 500)}...`);
       
