@@ -379,7 +379,7 @@ async function analyzeTaskComplexity(options, context = {}) {
 
 			reportLog(`Parsing complexity analysis from text response...`, 'info');
 			try {
-				let cleanedResponse = aiServiceResponse.mainResult;
+				let cleanedResponse = aiServiceResponse.text;
 				cleanedResponse = cleanedResponse.trim();
 
 				const codeBlockMatch = cleanedResponse.match(

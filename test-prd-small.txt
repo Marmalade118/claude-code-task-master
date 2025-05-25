@@ -1,0 +1,5 @@
+Create a simple todo list application with the following features:
+- Add new tasks
+- Mark tasks as complete
+- Delete tasks
+- Save tasks to local storage

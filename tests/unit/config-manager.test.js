@@ -61,8 +61,8 @@ const MOCK_CONFIG_PATH = path.join(MOCK_PROJECT_ROOT, '.taskmasterconfig');
 const DEFAULT_CONFIG = {
 	models: {
 		main: {
-			provider: 'anthropic',
-			modelId: 'claude-3-7-sonnet-20250219',
+			provider: 'claude-code',
+			modelId: 'local',
 			maxTokens: 64000,
 			temperature: 0.2
 		},

@@ -951,24 +951,18 @@ async function addTask(
 				});
 				report('DEBUG: generateObjectService returned successfully.', 'debug');
 
-				if (!aiServiceResponse || !aiServiceResponse.mainResult) {
+				if (!aiServiceResponse || !aiServiceResponse.object) {
 					throw new Error(
 						'AI service did not return the expected object structure.'
 					);
 				}
 
-				// Prefer mainResult if it looks like a valid task object, otherwise try mainResult.object
+				// The object property contains the validated task data
 				if (
-					aiServiceResponse.mainResult.title &&
-					aiServiceResponse.mainResult.description
+					aiServiceResponse.object.title &&
+					aiServiceResponse.object.description
 				) {
-					taskData = aiServiceResponse.mainResult;
-				} else if (
-					aiServiceResponse.mainResult.object &&
-					aiServiceResponse.mainResult.object.title &&
-					aiServiceResponse.mainResult.object.description
-				) {
-					taskData = aiServiceResponse.mainResult.object;
+					taskData = aiServiceResponse.object;
 				} else {
 					throw new Error('AI service did not return a valid task object.');
 				}

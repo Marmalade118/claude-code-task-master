@@ -164,12 +164,16 @@ function _resolveApiKey(providerName, session, projectRoot = null) {
 		mistral: 'MISTRAL_API_KEY',
 		azure: 'AZURE_OPENAI_API_KEY',
 		openrouter: 'OPENROUTER_API_KEY',
-		xai: 'XAI_API_KEY'
+		xai: 'XAI_API_KEY',
+		ollama: 'OLLAMA_API_KEY'
 	};
 
 	// Providers that don't require API keys
 	if (providerName === 'claude-code') {
 		return null; // Claude Code uses the local installation, no API key needed
+	}
+	if (providerName === 'ollama') {
+		return null; // Ollama typically doesn't require an API key for local setup
 	}
 	// Double check this -- I have had to use an api key for ollama in the past
 	// if (providerName === 'ollama') {

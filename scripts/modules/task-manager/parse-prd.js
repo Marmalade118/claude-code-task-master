@@ -288,25 +288,16 @@ Return your response in this format:
 		);
 
 		// Validate and Process Tasks
-		// const generatedData = aiServiceResponse?.mainResult?.object;
-
-		// Robustly get the actual AI-generated object
+		// Get the generated object from the response
 		let generatedData = null;
-		if (aiServiceResponse?.mainResult) {
+		if (aiServiceResponse?.object) {
 			if (
-				typeof aiServiceResponse.mainResult === 'object' &&
-				aiServiceResponse.mainResult !== null &&
-				'tasks' in aiServiceResponse.mainResult
+				typeof aiServiceResponse.object === 'object' &&
+				aiServiceResponse.object !== null &&
+				'tasks' in aiServiceResponse.object
 			) {
-				// If mainResult itself is the object with a 'tasks' property
-				generatedData = aiServiceResponse.mainResult;
-			} else if (
-				typeof aiServiceResponse.mainResult.object === 'object' &&
-				aiServiceResponse.mainResult.object !== null &&
-				'tasks' in aiServiceResponse.mainResult.object
-			) {
-				// If mainResult.object is the object with a 'tasks' property
-				generatedData = aiServiceResponse.mainResult.object;
+				// The object property contains the generated data
+				generatedData = aiServiceResponse.object;
 			}
 		}
 
@@ -631,19 +622,13 @@ Return your response in this format:
 
 	// Process the response (same logic as main function)
 	let generatedData = null;
-	if (aiServiceResponse?.mainResult) {
+	if (aiServiceResponse?.object) {
 		if (
-			typeof aiServiceResponse.mainResult === 'object' &&
-			aiServiceResponse.mainResult !== null &&
-			'tasks' in aiServiceResponse.mainResult
+			typeof aiServiceResponse.object === 'object' &&
+			aiServiceResponse.object !== null &&
+			'tasks' in aiServiceResponse.object
 		) {
-			generatedData = aiServiceResponse.mainResult;
-		} else if (
-			typeof aiServiceResponse.mainResult.object === 'object' &&
-			aiServiceResponse.mainResult.object !== null &&
-			'tasks' in aiServiceResponse.mainResult.object
-		) {
-			generatedData = aiServiceResponse.mainResult.object;
+			generatedData = aiServiceResponse.object;
 		}
 	}
 

@@ -133,9 +133,13 @@ export async function generateClaudeCodeText({
 					reject(new Error('Claude Code CLI returned empty response'));
 				} else {
 					log('debug', `Returning text result of length: ${result.length}`);
-					// Return in the expected format with mainResult wrapper
+					// Return in the expected format matching other providers
 					resolve({
-						mainResult: result
+						text: result,
+						usage: {
+							inputTokens: 0, // We don't have token counts from Claude Code CLI
+							outputTokens: 0
+						}
 					});
 				}
 			} else {
@@ -166,10 +170,9 @@ export async function streamClaudeCodeText(params) {
 	// For now, we're implementing this as a non-streaming function
 	// that returns in the format expected by the caller
 	const response = await generateClaudeCodeText(params);
-	const text = response.mainResult;
+	const text = response.text;
 
 	return {
-		mainResult: text,
 		textStream: new ReadableStream({
 			start(controller) {
 				controller.enqueue(text);
@@ -177,10 +180,7 @@ export async function streamClaudeCodeText(params) {
 			}
 		}),
 		text: text,
-		usage: {
-			promptTokens: 0, // We don't have token counts from Claude Code CLI
-			completionTokens: 0
-		}
+		usage: response.usage
 	};
 }
 
@@ -236,7 +236,7 @@ export async function generateClaudeCodeObject({
 			});
 
 			// Extract the text from the response object
-			const jsonText = response.mainResult;
+			const jsonText = response.text;
 
 			log(
 				'debug',
@@ -381,9 +381,10 @@ export async function generateClaudeCodeObject({
 
 			log('debug', `Successfully validated object on attempt ${attempts}`);
 
-			// Return in the expected format with mainResult wrapper
+			// Return in the expected format matching other providers
 			return {
-				mainResult: validatedObject
+				object: validatedObject,
+				usage: response.usage
 			};
 		} catch (error) {
 			lastError = error;

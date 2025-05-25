@@ -397,9 +397,9 @@ The changes described in the prompt should be thoughtfully applied to make the t
 			if (loadingIndicator)
 				stopLoadingIndicator(loadingIndicator, 'AI update complete.');
 
-			// Use mainResult (text) for parsing
+			// Use text from the response for parsing
 			const updatedTask = parseUpdatedTaskFromText(
-				aiServiceResponse.mainResult,
+				aiServiceResponse.text,
 				taskId,
 				logFn,
 				isMCP
