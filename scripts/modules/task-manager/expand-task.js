@@ -588,7 +588,7 @@ async function expandTask(
 				commandName: 'expand-task',
 				outputType: outputFormat
 			});
-			responseText = aiServiceResponse.mainResult;
+			responseText = aiServiceResponse.text;
 
 			// Parse Subtasks
 			generatedSubtasks = parseSubtasksFromText(

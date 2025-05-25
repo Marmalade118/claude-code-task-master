@@ -264,6 +264,33 @@ function getModelConfigForRole(role, explicitRoot = null) {
 	return roleConfig;
 }
 
+function getBaseUrlForRole(role, explicitRoot = null) {
+	const roleConfig = getModelConfigForRole(role, explicitRoot);
+	return roleConfig && typeof roleConfig.baseUrl === 'string'
+		? roleConfig.baseUrl
+		: undefined;
+}
+
+function getUserId(explicitRoot = null) {
+	const config = getConfig(explicitRoot);
+	if (!config.global) {
+		config.global = {}; // Ensure global object exists
+	}
+	if (!config.global.userId) {
+		config.global.userId = '1234567890';
+		// Attempt to write the updated config.
+		// It's important that writeConfig correctly resolves the path
+		// using explicitRoot, similar to how getConfig does.
+		const success = writeConfig(config, explicitRoot);
+		if (!success) {
+			// Log an error or handle the failure to write,
+			// though for now, we'll proceed with the in-memory default.
+			log('warning', 'Could not persist generated userId to config file.');
+		}
+	}
+	return config.global.userId;
+}
+
 function getMainProvider(explicitRoot = null) {
 	return getModelConfigForRole('main', explicitRoot).provider;
 }
@@ -704,6 +731,7 @@ export {
 	getFallbackModelId,
 	getFallbackMaxTokens,
 	getFallbackTemperature,
+	getBaseUrlForRole,
 
 	// Global setting getters (No env var overrides)
 	getLogLevel,
@@ -714,6 +742,7 @@ export {
 	getProjectName,
 	getOllamaBaseUrl,
 	getParametersForRole,
+	getUserId,
 
 	// API Key Checkers (still relevant)
 	isApiKeySet,

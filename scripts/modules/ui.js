@@ -2032,20 +2032,23 @@ function displayAiUsageSummary(telemetryData, outputType = 'cli') {
 		return; // Only display for CLI and if data exists and not in silent mode
 	}
 
-	const {
-		modelUsed,
-		providerName,
-		inputTokens,
-		outputTokens,
-		totalTokens,
-		totalCost,
-		commandName
-	} = telemetryData;
+	// Extract data from telemetryData structure
+	const provider = telemetryData.provider || 'unknown';
+	const model = telemetryData.model || 'unknown';
+	const commandName = telemetryData.commandName || 'unknown';
+	const usage = telemetryData.usage || {};
+	const cost = telemetryData.cost || {};
+
+	// Map usage fields to expected names
+	const inputTokens = usage.inputTokens || usage.promptTokens || 0;
+	const outputTokens = usage.outputTokens || usage.completionTokens || 0;
+	const totalTokens = inputTokens + outputTokens;
+	const totalCost = cost.totalCost || 0;
 
 	let summary = chalk.bold.blue('AI Usage Summary:') + '\n';
 	summary += chalk.gray(`  Command: ${commandName}\n`);
-	summary += chalk.gray(`  Provider: ${providerName}\n`);
-	summary += chalk.gray(`  Model: ${modelUsed}\n`);
+	summary += chalk.gray(`  Provider: ${provider}\n`);
+	summary += chalk.gray(`  Model: ${model}\n`);
 	summary += chalk.gray(
 		`  Tokens: ${totalTokens} (Input: ${inputTokens}, Output: ${outputTokens})\n`
 	);

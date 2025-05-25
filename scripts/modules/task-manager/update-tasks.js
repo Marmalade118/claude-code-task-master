@@ -373,9 +373,9 @@ The changes described in the prompt should be applied to ALL tasks in the list.`
 			if (loadingIndicator)
 				stopLoadingIndicator(loadingIndicator, 'AI update complete.');
 
-			// Use the mainResult (text) for parsing
+			// Use the text from the response for parsing
 			const parsedUpdatedTasks = parseUpdatedTasksFromText(
-				aiServiceResponse.mainResult,
+				aiServiceResponse.text,
 				tasksToUpdate.length,
 				logFn,
 				isMCP

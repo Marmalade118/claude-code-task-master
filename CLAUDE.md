@@ -5,6 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ### Development & Testing
+
 ```bash
 # Install dependencies
 npm install
@@ -35,6 +36,7 @@ npm run mcp-server
 ```
 
 ### MCP Inspector
+
 ```bash
 # Run MCP inspector
 npm run inspector
@@ -70,17 +72,18 @@ Task Master is a task management system for AI-driven development with Claude, d
 
 ### Data Flow
 
-1. User command (CLI or MCP) → 
-2. Command handler or MCP tool → 
-3. Core function implementation → 
-4. Task data processing → 
-5. AI service communication (if needed) → 
-6. File system operations → 
+1. User command (CLI or MCP) →
+2. Command handler or MCP tool →
+3. Core function implementation →
+4. Task data processing →
+5. AI service communication (if needed) →
+6. File system operations →
 7. Response formatting
 
 ## API Keys and Configuration
 
 Task Master requires API keys for AI providers:
+
 - `ANTHROPIC_API_KEY` - Required for Claude API
 - `PERPLEXITY_API_KEY` - Optional for research capabilities
 - `OPENAI_API_KEY` - Optional for alternative model support
