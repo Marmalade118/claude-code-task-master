@@ -9,6 +9,7 @@ Task Master has been modified to work with the locally installed Claude Code CLI
 ## Prerequisites
 
 1. Ensure you have Claude Code CLI installed and working properly
+
    - You should be able to run `claude-code --version` successfully
    - If not, install Claude Code following the [official instructions](https://claude.ai/code)
 
@@ -64,11 +65,13 @@ This will send a simple test prompt to Claude Code and display the result.
 If you encounter issues:
 
 1. Verify Claude Code is working by testing it directly:
+
    ```
    claude-code prompt "What is 2+2?"
    ```
 
 2. Check the Claude Code path in the integration:
+
    - The implementation looks for Claude Code in common installation locations
    - If your installation is in a non-standard location, you may need to modify the path in `/src/ai-providers/claude-code.js`
 

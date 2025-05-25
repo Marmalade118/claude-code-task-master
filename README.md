@@ -12,10 +12,12 @@ A task management system for AI-driven development with Claude, designed to work
 ## Requirements
 
 Either:
+
 - Claude Code CLI (recommended)
 - OR Anthropic API key (Claude API)
 
 Optional:
+
 - OpenAI SDK (for Perplexity API integration, optional)
 
 ## Quick Start
@@ -61,6 +63,7 @@ MCP (Model Control Protocol) lets you run Task Master directly from your editor.
 > **Note:** If using Claude Code CLI, you don't need to set the ANTHROPIC_API_KEY environment variable!
 
 ##### VS Code (`servers` + `type`)
+
 ```jsonc
 {
 	"servers": {

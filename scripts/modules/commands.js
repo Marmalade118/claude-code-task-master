@@ -2109,7 +2109,10 @@ function registerCommands(programInstance) {
 		.command('move')
 		.description('Move a task to a new position in the task list')
 		.option('-i, --id <id>', 'Task ID to move (required)')
-		.option('-p, --position <position>', 'New position (1-based index) (required)')
+		.option(
+			'-p, --position <position>',
+			'New position (1-based index) (required)'
+		)
 		.option('-f, --file <file>', 'Path to the tasks file', 'tasks/tasks.json')
 		.action(async (options) => {
 			const tasksPath = options.file;
@@ -2122,13 +2125,19 @@ function registerCommands(programInstance) {
 			}
 
 			if (!newPosition || isNaN(newPosition) || newPosition < 1) {
-				console.error(chalk.red('Error: Valid position is required (--position, must be >= 1)'));
+				console.error(
+					chalk.red(
+						'Error: Valid position is required (--position, must be >= 1)'
+					)
+				);
 				process.exit(1);
 			}
 
 			try {
 				await moveTask(tasksPath, taskId, newPosition);
-				console.log(chalk.green(`✓ Task ${taskId} moved to position ${newPosition}`));
+				console.log(
+					chalk.green(`✓ Task ${taskId} moved to position ${newPosition}`)
+				);
 			} catch (error) {
 				console.error(chalk.red(`Error moving task: ${error.message}`));
 				process.exit(1);
