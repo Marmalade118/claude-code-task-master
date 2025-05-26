@@ -37,7 +37,7 @@ function displayBanner() {
 	if (isSilentMode()) return;
 
 	console.clear();
-	const bannerText = figlet.textSync('Task Master', {
+	const bannerText = figlet.textSync('Task Master CC', {
 		font: 'Standard',
 		horizontalLayout: 'default',
 		verticalLayout: 'default'
@@ -47,7 +47,7 @@ function displayBanner() {
 
 	// Add creator credit line below the banner
 	console.log(
-		chalk.dim('by ') + chalk.cyan.underline('https://x.com/eyaltoledano')
+		chalk.dim('by ') + chalk.cyan.underline('http://www.ReactionGears.com')
 	);
 
 	// Read version directly from package.json
