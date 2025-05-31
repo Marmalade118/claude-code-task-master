@@ -1,16 +1,11 @@
 # Task ID: 1
-# Title: Implement Task Data Structure
-# Status: done
+# Title: Next.js Foundation Setup with Database and Authentication
+# Status: pending
 # Dependencies: None
 # Priority: high
-# Description: Design and implement the core tasks.json structure that will serve as the single source of truth for the system.
+# Description: Initialize the Next.js 14+ project with App Router, configure Supabase database, set up Tailwind CSS with Shadcn/ui components, and implement NextAuth with 2FA for admin access
 # Details:
-Create the foundational data structure including:
-- JSON schema for tasks.json
-- Task model with all required fields (id, title, description, status, dependencies, priority, details, testStrategy, subtasks)
-- Validation functions for the task model
-- Basic file system operations for reading/writing tasks.json
-- Error handling for file operations
+Create Next.js project with TypeScript, install dependencies (React 18+, Tailwind CSS, Shadcn/ui, NextAuth, Supabase client, Framer Motion, React Hook Form). Configure Supabase database with tables: users (id, email, role, twoFactorEnabled, createdAt), content_pages (id, slug, title, content, seoScore, metaDescription, updatedAt), reservations (id, name, email, phone, serviceType, preferredDate, partySize, message, sourceLocation, createdAt), form_fields (id, fieldName, fieldType, required, options, order). Set up NextAuth with Supabase adapter, implement 2FA using time-based OTP. Configure environment variables for database URL, NextAuth secret, and admin credentials. Set up Netlify deployment configuration with build settings.
 
 # Test Strategy:
-Verify that the tasks.json structure can be created, read, and validated. Test with sample data to ensure all fields are properly handled and that validation correctly identifies invalid structures.
+Unit tests for database connection and user authentication flows. Integration tests for NextAuth setup with 2FA. End-to-end tests for admin login process. Database migration tests to ensure schema integrity.

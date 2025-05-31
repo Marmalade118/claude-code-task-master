@@ -91,9 +91,9 @@ export async function generateClaudeCodeText({
 	// For text generation, use text format; for objects, we'll use a separate approach
 	const args = ['--print', '--model', 'sonnet'];
 
-	// Add higher token limits for object generation if this is for structured output
+	// Log if high token count is requested (even though we can't control it)
 	if (maxTokens && maxTokens > 4000) {
-		log('debug', `Using higher token limit: ${maxTokens}`);
+		log('debug', `High token limit requested: ${maxTokens} (Claude CLI may have its own limits)`);
 	}
 
 	// Execute Claude Code CLI
@@ -302,9 +302,9 @@ export async function generateClaudeCodeObject({
 					);
 
 					// Check if the response looks like it was truncated
-					if (cleanedText.length > 8000 && !cleanedText.trim().endsWith('}')) {
+					if (cleanedText.length > 6000 && !cleanedText.trim().endsWith('}')) {
 						throw new Error(
-							'Response appears to be truncated - consider reducing the number of tasks or complexity'
+							'Response appears to be truncated. Try reducing --num-tasks or simplifying the PRD.'
 						);
 					}
 

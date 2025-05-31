@@ -554,7 +554,9 @@ function registerCommands(programInstance) {
 						await parsePRD(defaultPrdPath, outputPath, numTasks, {
 							append: useAppend, // Changed key from useAppend to append
 							force: useForce, // Changed key from useForce to force
-							research: research
+							research: research,
+							projectRoot: process.cwd(), // Add projectRoot for proper provider detection
+							spinner: spinner // Pass spinner to handle pausing
 						});
 						spinner.succeed('Tasks generated successfully!');
 						return;
@@ -617,7 +619,9 @@ function registerCommands(programInstance) {
 				await parsePRD(inputFile, outputPath, numTasks, {
 					append: useAppend,
 					force: useForce,
-					research: research
+					research: research,
+					projectRoot: process.cwd(), // Add projectRoot for proper provider detection
+					spinner: spinner // Pass spinner to handle pausing
 				});
 				spinner.succeed('Tasks generated successfully!');
 			} catch (error) {

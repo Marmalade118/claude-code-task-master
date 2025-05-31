@@ -1,16 +1,11 @@
 # Task ID: 2
-# Title: Develop Command Line Interface Foundation
-# Status: done
+# Title: Homepage and Reservation System Implementation
+# Status: pending
 # Dependencies: 1
 # Priority: high
-# Description: Create the basic CLI structure using Commander.js with command parsing and help documentation.
+# Description: Build the homepage with dynamic hero carousel, services grid with alternating layout, and unified reservation modal system with email integration and source tracking
 # Details:
-Implement the CLI foundation including:
-- Set up Commander.js for command parsing
-- Create help documentation for all commands
-- Implement colorized console output for better readability
-- Add logging system with configurable levels
-- Handle global options (--help, --version, --file, --quiet, --debug, --json)
+Implement hero carousel component with 4-6 high-quality food images, smooth right-to-left transitions, and Ken Burns effect using Framer Motion. Create services grid with alternating 2-column layout for Private Dining, Catering, Tasting Menu, and Cooking Class services. Build reservation modal triggered by CTA buttons throughout site, capturing name, email, phone, service type, preferred date, party size, message, and source location. Integrate Nodemailer with SMTP for sending formatted emails to chefaustinbeckett@gmail.com. Implement form validation with React Hook Form, loading states, and confirmation messaging. Add responsive navigation with mobile menu, footer with social links. Apply dark theme styling (#0A0A0A backgrounds, #D4AF37 gold accents, #FFFFFF text) using Tailwind CSS.
 
 # Test Strategy:
-Test each command with various parameters to ensure proper parsing. Verify help documentation is comprehensive and accurate. Test logging at different verbosity levels.
+Component testing for carousel functionality and smooth transitions. Form validation testing with various input scenarios. Email delivery testing in development and staging environments. Responsive design testing across mobile, tablet, and desktop breakpoints. Accessibility testing for WCAG 2.1 AA compliance.

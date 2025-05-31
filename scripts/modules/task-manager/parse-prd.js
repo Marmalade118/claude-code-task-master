@@ -43,6 +43,208 @@ const prdResponseSchema = z.object({
 });
 
 /**
+ * Parse PRD content into sections based on markdown headers
+ * @param {string} prdContent - The PRD content
+ * @returns {Array<{title: string, level: number, content: string, lineCount: number}>}
+ */
+function parsePRDIntoSections(prdContent) {
+	const lines = prdContent.split('\n');
+	const sections = [];
+	let currentSection = null;
+	let overviewContent = '';
+	let inOverview = true;
+	
+	lines.forEach((line, index) => {
+		// Check for section markers first
+		if (line.includes('<!-- TASK-SECTION:') && line.includes('START -->')) {
+			const titleMatch = line.match(/<!-- TASK-SECTION:\s*(.+?)\s*START -->/);
+			if (titleMatch) {
+				if (currentSection) {
+					sections.push(currentSection);
+				}
+				currentSection = {
+					title: titleMatch[1],
+					level: 0, // Section markers are top level
+					content: '',
+					lineCount: 0,
+					isMarked: true
+				};
+				inOverview = false;
+				return;
+			}
+		}
+		
+		if (line.includes('<!-- TASK-SECTION:') && line.includes('END -->')) {
+			if (currentSection) {
+				sections.push(currentSection);
+				currentSection = null;
+			}
+			return;
+		}
+		
+		// Check for markdown headers
+		const headerMatch = line.match(/^(#{1,3})\s+(.+)$/);
+		
+		if (headerMatch && !currentSection?.isMarked) {
+			const level = headerMatch[1].length;
+			const title = headerMatch[2].trim();
+			
+			// Skip headers that look like code comments or installation steps
+			const isCodeComment = title.startsWith('!') || title.startsWith('/') || 
+			                     title.includes('.py') || title.includes('.sh') || 
+			                     title.includes('.yml') || title.includes('.json');
+			const isInstallStep = title.match(/^(Install|Setup|Enable|Run|Start|Make|Build|Clone)\s/i);
+			
+			// Only create new sections for level 1 and 2 headers that aren't code/steps
+			if (level <= 2 && !isCodeComment && !isInstallStep) {
+				if (currentSection) {
+					sections.push(currentSection);
+				}
+				
+				currentSection = {
+					title: title,
+					level: level,
+					content: line + '\n',
+					lineCount: 1,
+					isMarked: false
+				};
+				inOverview = false;
+			} else if (currentSection) {
+				// Add level 3 headers to current section
+				currentSection.content += line + '\n';
+				currentSection.lineCount++;
+			}
+		} else if (currentSection) {
+			// Add content to current section
+			currentSection.content += line + '\n';
+			currentSection.lineCount++;
+		} else if (inOverview) {
+			// Collect overview content (before first section)
+			overviewContent += line + '\n';
+		}
+	});
+	
+	// Don't forget the last section
+	if (currentSection) {
+		sections.push(currentSection);
+	}
+	
+	// Add overview as a special section at the beginning
+	if (overviewContent.trim()) {
+		sections.unshift({
+			title: 'Project Overview',
+			level: 0,
+			content: overviewContent,
+			lineCount: overviewContent.split('\n').length,
+			isOverview: true
+		});
+	}
+	
+	return sections;
+}
+
+/**
+ * Group sections into task batches based on size and content
+ * @param {Array} sections - Parsed sections
+ * @param {number} totalTasks - Total number of tasks to generate
+ * @returns {Array<{name: string, sections: Array, suggestedTasks: number}>}
+ */
+function groupSectionsForTasks(sections, totalTasks) {
+	// Filter out overview section for task counting
+	const taskSections = sections.filter(s => !s.isOverview);
+	const overview = sections.find(s => s.isOverview);
+	
+	// If we have way more sections than tasks requested, we need to be more aggressive about grouping
+	const tooManySections = taskSections.length > totalTasks * 1.5;
+	
+	// Group small sections together, keep large sections separate
+	const groups = [];
+	let currentGroup = null;
+	const MAX_LINES_PER_GROUP = tooManySections ? 800 : 500; // More aggressive grouping if too many sections
+	const MIN_LINES_FOR_OWN_GROUP = tooManySections ? 500 : 300; // Raise threshold if too many sections
+	
+	taskSections.forEach(section => {
+		// Large sections get their own group
+		if (section.lineCount > MIN_LINES_FOR_OWN_GROUP || section.level === 1) {
+			if (currentGroup) {
+				groups.push(currentGroup);
+				currentGroup = null;
+			}
+			groups.push({
+				name: section.title,
+				sections: [section],
+				lineCount: section.lineCount,
+				isLarge: true
+			});
+		} else {
+			// Small sections can be grouped
+			if (!currentGroup || currentGroup.lineCount + section.lineCount > MAX_LINES_PER_GROUP) {
+				if (currentGroup) {
+					groups.push(currentGroup);
+				}
+				currentGroup = {
+					name: section.title,
+					sections: [section],
+					lineCount: section.lineCount,
+					isLarge: false
+				};
+			} else {
+				currentGroup.sections.push(section);
+				currentGroup.lineCount += section.lineCount;
+				currentGroup.name = `${currentGroup.sections[0].title} + ${currentGroup.sections.length - 1} more`;
+			}
+		}
+	});
+	
+	// Add last group
+	if (currentGroup) {
+		groups.push(currentGroup);
+	}
+	
+	// Distribute tasks proportionally based on content size
+	const totalLines = groups.reduce((sum, g) => sum + g.lineCount, 0);
+	
+	// First pass: distribute proportionally with minimum of 1
+	groups.forEach(group => {
+		const proportion = group.lineCount / totalLines;
+		group.suggestedTasks = Math.max(1, Math.round(totalTasks * proportion));
+	});
+	
+	// Adjust to match exact total
+	let currentTotal = groups.reduce((sum, g) => sum + g.suggestedTasks, 0);
+	
+	// If we have too many tasks, reduce from largest groups
+	while (currentTotal > totalTasks) {
+		const largestGroup = groups
+			.filter(g => g.suggestedTasks > 1)
+			.reduce((max, g) => (g.suggestedTasks > max.suggestedTasks ? g : max), { suggestedTasks: 0 });
+		
+		if (largestGroup.suggestedTasks > 1) {
+			largestGroup.suggestedTasks--;
+			currentTotal--;
+		} else {
+			break; // Can't reduce further
+		}
+	}
+	
+	// If we have too few tasks, add to largest groups
+	while (currentTotal < totalTasks) {
+		const largestGroup = groups.reduce((max, g) => 
+			g.lineCount > max.lineCount ? g : max
+		);
+		largestGroup.suggestedTasks++;
+		currentTotal++;
+	}
+	
+	// Add overview reference to each group
+	groups.forEach(group => {
+		group.overview = overview?.content || '';
+	});
+	
+	return groups;
+}
+
+/**
  * Parse a PRD file and generate tasks
  * @param {string} prdPath - Path to the PRD file
  * @param {string} tasksPath - Path to the tasks.json file
@@ -65,7 +267,8 @@ async function parsePRD(prdPath, tasksPath, numTasks, options = {}) {
 		projectRoot,
 		force = false,
 		append = false,
-		research = false
+		research = false,
+		spinner = null
 	} = options;
 	const isMCP = !!mcpLog;
 	const outputFormat = isMCP ? 'json' : 'text';
@@ -159,17 +362,136 @@ async function parsePRD(prdPath, tasksPath, numTasks, options = {}) {
 		let useForce = force;
 		let tasksPerBatch = numTasks; // Start with the requested number of tasks
 
-		if (isClaudeCode && numTasks >= 10 && !append && !force) {
+		// Check PRD size for more intelligent batching
+		const prdSizeKB = Math.round(Buffer.byteLength(prdContent) / 1024);
+		const prdLines = prdContent.split('\n').length;
+		
+		// Debug logging
+		report(
+			`DEBUG: Provider=${currentProvider}, isClaudeCode=${isClaudeCode}, numTasks=${numTasks}, PRD size=${prdSizeKB}KB (${prdLines} lines)`,
+			'info'
+		);
+		
+		// Check if we should use section-based parsing for large PRDs
+		const useSectionParsing = (prdSizeKB > 30 || prdLines > 1000) && numTasks >= 10;
+		
+		if (useSectionParsing) {
 			report(
-				`Detected claude-code provider with ${numTasks} tasks. Auto-enabling batch mode with append.`,
+				`Large PRD detected (${prdSizeKB}KB, ${prdLines} lines). Using section-based parsing for better results.`,
+				'info'
+			);
+			
+			// Parse PRD into sections
+			const sections = parsePRDIntoSections(prdContent);
+			report(
+				`Found ${sections.length} sections in PRD.`,
+				'info'
+			);
+			
+			// Preview task distribution
+			const taskGroups = groupSectionsForTasks(sections, numTasks);
+			const actualTaskCount = taskGroups.reduce((sum, g) => sum + g.suggestedTasks, 0);
+			
+			// Warn if task count doesn't match
+			if (actualTaskCount !== numTasks && !isMCP) {
+				report(
+					`Warning: Due to section structure, this will create ${actualTaskCount} tasks instead of ${numTasks}.`,
+					'warn'
+				);
+				
+				// Only prompt in CLI mode, not MCP
+				if (outputFormat === 'text') {
+					// Stop spinner before showing prompt
+					if (spinner) {
+						spinner.stop();
+					}
+					
+					const inquirer = await import('inquirer');
+					const { proceed } = await inquirer.default.prompt([{
+						type: 'confirm',
+						name: 'proceed',
+						message: `Found ${sections.length} sections, which will create ${actualTaskCount} tasks. Proceed?`,
+						default: false
+					}]);
+					
+					if (!proceed) {
+						report('Operation cancelled by user.', 'info');
+						if (spinner) {
+							spinner.fail('Operation cancelled by user.');
+						}
+						process.exit(0);
+					}
+					
+					// Restart spinner if continuing
+					if (spinner) {
+						spinner.start('Generating tasks from sections...');
+					}
+				}
+			}
+			
+			// Use section-based parsing
+			return await parsePRDWithSections(
+				prdPath,
+				tasksPath,
+				actualTaskCount, // Use actual count instead of requested
+				prdContent,
+				sections,
+				existingTasks,
+				nextId,
+				{
+					reportProgress,
+					mcpLog,
+					session,
+					projectRoot,
+					force: useForce,
+					append: useAppend,
+					research,
+					spinner
+				}
+			);
+		}
+		
+		// Original batching logic for smaller PRDs or when not using claude-code
+		if (isClaudeCode && numTasks >= 5 && !append) {
+			report(
+				`Detected claude-code provider with ${numTasks} tasks. PRD size: ${prdSizeKB}KB, ${prdLines} lines.`,
+				'info'
+			);
+			report(
+				`Auto-enabling batch mode with append.`,
 				'info'
 			);
 			useAppend = true;
-			tasksPerBatch = Math.min(6, numTasks); // Generate max 6 tasks per batch for claude-code
+			
+			// Dynamic batch sizing based on PRD size and task count
+			if (prdSizeKB > 60 || prdLines > 1800) {
+				// Extremely large PRD - use single task batches
+				tasksPerBatch = 1;
+			} else if (prdSizeKB > 50 || prdLines > 1500) {
+				// Very large PRD - use tiny batches
+				tasksPerBatch = 2;
+			} else if (prdSizeKB > 30 || prdLines > 1000 || numTasks >= 20) {
+				// Large PRD or many tasks - use small batches
+				tasksPerBatch = 3;
+			} else {
+				// Normal PRD - use medium batches
+				tasksPerBatch = 4;
+			}
+			
+			report(
+				`Using ${tasksPerBatch} tasks per batch to avoid truncation due to PRD size.`,
+				'info'
+			);
 		}
 
 		// Handle batching for claude-code provider
-		if (isClaudeCode && numTasks >= 10 && tasksPerBatch < numTasks) {
+		report(
+			`DEBUG: Batching check - isClaudeCode=${isClaudeCode}, numTasks=${numTasks}, tasksPerBatch=${tasksPerBatch}, should batch=${isClaudeCode && numTasks >= 5 && tasksPerBatch < numTasks}`,
+			'info'
+		);
+		
+		if (isClaudeCode && numTasks >= 5 && tasksPerBatch < numTasks) {
+			report(`Entering batch mode: ${numTasks} tasks in batches of ${tasksPerBatch}`, 'info');
 			return await parsePRDInBatches(
 				prdPath,
 				tasksPath,
@@ -681,4 +1003,207 @@ Return your response in this format:
 	);
 }
 
+/**
+ * Parse PRD using section-based approach to avoid truncation
+ */
+async function parsePRDWithSections(
+	prdPath,
+	tasksPath,
+	totalTasks,
+	prdContent,
+	sections,
+	existingTasks,
+	startId,
+	options
+) {
+	const { reportProgress, mcpLog, session, projectRoot, force, append, research } = options;
+	const isMCP = !!mcpLog;
+	
+	const logFn = mcpLog || {
+		info: (...args) => log('info', ...args),
+		warn: (...args) => log('warn', ...args),
+		error: (...args) => log('error', ...args),
+		success: (...args) => log('success', ...args)
+	};
+	
+	const report = (message, level = 'info') => {
+		if (mcpLog) {
+			mcpLog[level](message);
+		} else {
+			log(level, message);
+		}
+	};
+	
+	// Group sections into task batches
+	const taskGroups = groupSectionsForTasks(sections, totalTasks);
+	report(`Organized PRD into ${taskGroups.length} task groups:`, 'info');
+	taskGroups.forEach(group => {
+		report(`  - ${group.name}: ${group.suggestedTasks} tasks`, 'info');
+	});
+	
+	// Process each group
+	let currentId = startId;
+	let allGeneratedTasks = [];
+	let isFirstGroup = true;
+	const allTelemetryData = [];
+	
+	for (const group of taskGroups) {
+		report(`\nProcessing section: ${group.name} (${group.suggestedTasks} tasks)`, 'info');
+		
+		// Build focused prompt for this section
+		const sectionContent = group.sections.map(s => s.content).join('\n\n');
+		const sectionSizeKB = Math.round(Buffer.byteLength(sectionContent) / 1024);
+		report(`Section size: ${sectionSizeKB}KB`, 'debug');
+		
+		// Research-specific enhancements
+		const researchPromptAddition = research
+			? `\nBefore breaking down this section into tasks, research and analyze the latest technologies and best practices specific to the features described below.`
+			: '';
+			
+		// Build system prompt with section context
+		const systemPrompt = `You are analyzing a SECTION of a Product Requirements Document (PRD).${researchPromptAddition}
+
+PROJECT OVERVIEW (for context only):
+${group.overview.substring(0, 500)}${group.overview.length > 500 ? '...' : ''}
+
+CURRENT SECTION: "${group.name}"
+Generate exactly ${group.suggestedTasks} development tasks for ONLY the features described in this section.
+Each task should be focused on implementing specific functionality from this section.
+
+Guidelines:
+1. Create exactly ${group.suggestedTasks} tasks, numbered sequentially starting from ${currentId}
+2. Keep descriptions concise (under 300 characters)
+3. Keep details field under 800 characters
+4. Focus ONLY on features from this section
+5. Tasks should be atomic and implementable
+6. Set appropriate dependencies (only to tasks with lower IDs)
+
+Respond ONLY with valid JSON matching this structure:
+{
+  "tasks": [...],
+  "metadata": {
+    "projectName": "string",
+    "totalTasks": number,
+    "sourceFile": "string", 
+    "generatedAt": "YYYY-MM-DD"
+  }
+}`;
+
+		const userPrompt = `Here is the section content to analyze:
+
+${sectionContent}
+
+Generate ${group.suggestedTasks} tasks starting from ID ${currentId}.
+
+Return response in this format:
+{
+  "tasks": [
+    {
+      "id": ${currentId},
+      "title": "...",
+      "description": "...",
+      "status": "pending",
+      "priority": "medium",
+      "dependencies": [],
+      "details": "...",
+      "testStrategy": "..."
+    }
+  ],
+  "metadata": {
+    "projectName": "${group.name} Implementation",
+    "totalTasks": ${group.suggestedTasks},
+    "sourceFile": "${prdPath}",
+    "generatedAt": "${new Date().toISOString().split('T')[0]}"
+  }
+}`;
+
+		try {
+			// Call AI service for this section
+			const aiServiceResponse = await generateObjectService({
+				role: research ? 'research' : 'main',
+				session: session,
+				projectRoot: projectRoot,
+				schema: prdResponseSchema,
+				objectName: 'tasks_data',
+				systemPrompt: systemPrompt,
+				prompt: userPrompt,
+				commandName: 'parse-prd-section',
+				outputType: isMCP ? 'mcp' : 'cli'
+			});
+			
+			// Process generated tasks
+			if (aiServiceResponse?.object?.tasks) {
+				const sectionTasks = aiServiceResponse.object.tasks;
+				
+				// Update IDs to ensure continuity
+				const processedTasks = sectionTasks.map((task, index) => ({
+					...task,
+					id: currentId + index,
+					status: 'pending',
+					priority: task.priority || 'medium',
+					dependencies: Array.isArray(task.dependencies) ? task.dependencies : [],
+					subtasks: []
+				}));
+				
+				// Validate and fix dependencies
+				processedTasks.forEach(task => {
+					task.dependencies = task.dependencies.filter(depId => 
+						depId < task.id && 
+						(depId < startId || allGeneratedTasks.some(t => t.id === depId))
+					);
+				});
+				
+				allGeneratedTasks.push(...processedTasks);
+				currentId += processedTasks.length;
+				
+				report(`Generated ${processedTasks.length} tasks for section "${group.name}"`, 'success');
+				
+				// Collect telemetry
+				if (aiServiceResponse.telemetryData) {
+					allTelemetryData.push(aiServiceResponse.telemetryData);
+				}
+			}
+		} catch (error) {
+			report(`Error processing section "${group.name}": ${error.message}`, 'error');
+			// Continue with other sections
+		}
+		
+		// Write intermediate results after each section
+		const intermediateData = {
+			tasks: append || !isFirstGroup ? [...existingTasks, ...allGeneratedTasks] : allGeneratedTasks
+		};
+		writeJSON(tasksPath, intermediateData);
+		isFirstGroup = false;
+	}
+	
+	// Final summary
+	const finalTasks = append ? [...existingTasks, ...allGeneratedTasks] : allGeneratedTasks;
+	const outputData = { tasks: finalTasks };
+	writeJSON(tasksPath, outputData);
+	
+	report(
+		`Successfully generated ${allGeneratedTasks.length} tasks across ${taskGroups.length} sections`,
+		'success'
+	);
+	
+	// Generate markdown files
+	await generateTaskFiles(tasksPath, path.dirname(tasksPath), { mcpLog });
+	
+	// Aggregate telemetry
+	const aggregatedTelemetry = allTelemetryData.length > 0 ? 
+		allTelemetryData.reduce((acc, data) => ({
+			inputTokens: (acc.inputTokens || 0) + (data.inputTokens || 0),
+			outputTokens: (acc.outputTokens || 0) + (data.outputTokens || 0),
+			totalCost: (acc.totalCost || 0) + (data.totalCost || 0)
+		}), {}) : null;
+	
+	// Return success with telemetry
+	return {
+		success: true,
+		tasksPath,
+		telemetryData: aggregatedTelemetry
+	};
+}
+
 export default parsePRD;
+export { parsePRDIntoSections, groupSectionsForTasks };
