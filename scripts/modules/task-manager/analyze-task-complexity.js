@@ -338,49 +338,154 @@ async function analyzeTaskComplexity(options, context = {}) {
 		}
 
 		// Continue with regular analysis path
-		const prompt = generateInternalComplexityAnalysisPrompt(tasksData);
-		const systemPrompt =
-			'You are an expert software architect and project manager analyzing task complexity. Respond only with the requested valid JSON array.';
-
-		let loadingIndicator = null;
-		if (outputFormat === 'text') {
-			loadingIndicator = startLoadingIndicator(
-				`${useResearch ? 'Researching' : 'Analyzing'} the complexity of your tasks with AI...\n`
-			);
-		}
-
+		// Check if we need to batch tasks to avoid truncation
+		const TASKS_PER_BATCH = 8; // Analyze 8 tasks at a time to avoid 10K char limit
+		const needsBatching = tasksData.tasks.length > TASKS_PER_BATCH;
+		
 		let aiServiceResponse = null;
 		let complexityAnalysis = null;
 
 		try {
-			const role = useResearch ? 'research' : 'main';
+			if (needsBatching) {
+				// Batch processing for large task lists
+				reportLog(
+					`Analyzing ${tasksData.tasks.length} tasks in batches of ${TASKS_PER_BATCH} to avoid truncation...`,
+					'info'
+				);
+				if (outputFormat === 'text') {
+					console.log(
+						chalk.blue(
+							`Analyzing ${tasksData.tasks.length} tasks in batches to avoid response limits...`
+						)
+					);
+				}
+				
+				complexityAnalysis = [];
+				const allTelemetryData = [];
+				
+				// Process tasks in batches
+				for (let i = 0; i < tasksData.tasks.length; i += TASKS_PER_BATCH) {
+					const batchTasks = tasksData.tasks.slice(i, i + TASKS_PER_BATCH);
+					const batchNum = Math.floor(i / TASKS_PER_BATCH) + 1;
+					const totalBatches = Math.ceil(tasksData.tasks.length / TASKS_PER_BATCH);
+					
+					reportLog(
+						`Processing batch ${batchNum}/${totalBatches} (${batchTasks.length} tasks)...`,
+						'info'
+					);
+					
+					let loadingIndicator = null;
+					if (outputFormat === 'text') {
+						loadingIndicator = startLoadingIndicator(
+							`Analyzing batch ${batchNum}/${totalBatches}...\n`
+						);
+					}
+					
+					const batchPrompt = generateInternalComplexityAnalysisPrompt({
+						tasks: batchTasks
+					});
+					const systemPrompt =
+						'You are an expert software architect and project manager analyzing task complexity. Respond only with the requested valid JSON array.';
+					
+					const role = useResearch ? 'research' : 'main';
+					const batchResponse = await generateTextService({
+						prompt: batchPrompt,
+						systemPrompt,
+						role,
+						session,
+						projectRoot,
+						commandName: 'analyze-complexity',
+						outputType: mcpLog ? 'mcp' : 'cli'
+					});
+					
+					if (loadingIndicator) {
+						stopLoadingIndicator(loadingIndicator);
+					}
+					
+					// Parse batch response
+					let cleanedResponse = batchResponse.text.trim();
+					const codeBlockMatch = cleanedResponse.match(
+						/```(?:json)?\s*([\s\S]*?)\s*```/
+					);
+					if (codeBlockMatch) {
+						cleanedResponse = codeBlockMatch[1].trim();
+					} else {
+						const firstBracket = cleanedResponse.indexOf('[');
+						const lastBracket = cleanedResponse.lastIndexOf(']');
+						if (firstBracket !== -1 && lastBracket > firstBracket) {
+							cleanedResponse = cleanedResponse.substring(
+								firstBracket,
+								lastBracket + 1
+							);
+						}
+					}
+					
+					const batchAnalysis = JSON.parse(cleanedResponse);
+					complexityAnalysis.push(...batchAnalysis);
+					
+					if (batchResponse.telemetryData) {
+						allTelemetryData.push(batchResponse.telemetryData);
+					}
+				}
+				
+				// Create aggregated response
+				const aggregatedTelemetry = allTelemetryData.length > 0 ? 
+					allTelemetryData.reduce((acc, data) => ({
+						inputTokens: (acc.inputTokens || 0) + (data.inputTokens || 0),
+						outputTokens: (acc.outputTokens || 0) + (data.outputTokens || 0),
+						totalCost: (acc.totalCost || 0) + (data.totalCost || 0)
+					}), {}) : null;
+				
+				aiServiceResponse = {
+					text: JSON.stringify(complexityAnalysis),
+					telemetryData: aggregatedTelemetry
+				};
+				
+			} else {
+				// Original single-batch processing for small task lists
+				const prompt = generateInternalComplexityAnalysisPrompt(tasksData);
+				const systemPrompt =
+					'You are an expert software architect and project manager analyzing task complexity. Respond only with the requested valid JSON array.';
 
-			aiServiceResponse = await generateTextService({
-				prompt,
-				systemPrompt,
-				role,
-				session,
-				projectRoot,
-				commandName: 'analyze-complexity',
-				outputType: mcpLog ? 'mcp' : 'cli'
-			});
+				let loadingIndicator = null;
+				if (outputFormat === 'text') {
+					loadingIndicator = startLoadingIndicator(
+						`${useResearch ? 'Researching' : 'Analyzing'} the complexity of your tasks with AI...\n`
+					);
+				}
+
+					const role = useResearch ? 'research' : 'main';
+
+					aiServiceResponse = await generateTextService({
+						prompt,
+						systemPrompt,
+						role,
+						session,
+						projectRoot,
+						commandName: 'analyze-complexity',
+						outputType: mcpLog ? 'mcp' : 'cli'
+					});
 
 			if (loadingIndicator) {
 				stopLoadingIndicator(loadingIndicator);
 				loadingIndicator = null;
 			}
-			if (outputFormat === 'text') {
-				readline.clearLine(process.stdout, 0);
-				readline.cursorTo(process.stdout, 0);
-				console.log(
-					chalk.green('AI service call complete. Parsing response...')
-				);
-			}
+			} // Close else block for non-batching
+			
+			// Skip parsing if we already have complexityAnalysis from batching
+			if (!complexityAnalysis) {
+				if (outputFormat === 'text') {
+					readline.clearLine(process.stdout, 0);
+					readline.cursorTo(process.stdout, 0);
+					console.log(
+						chalk.green('AI service call complete. Parsing response...')
+					);
+				}
 
-			reportLog(`Parsing complexity analysis from text response...`, 'info');
-			try {
-				let cleanedResponse = aiServiceResponse.text;
-				cleanedResponse = cleanedResponse.trim();
+				reportLog(`Parsing complexity analysis from text response...`, 'info');
+				try {
+					let cleanedResponse = aiServiceResponse.text;
+					cleanedResponse = cleanedResponse.trim();
 
 				const codeBlockMatch = cleanedResponse.match(
 					/```(?:json)?\s*([\s\S]*?)\s*```/
@@ -429,6 +534,7 @@ async function analyzeTaskComplexity(options, context = {}) {
 				}
 				throw parseError;
 			}
+			} // Close if (!complexityAnalysis)
 
 			const taskIds = tasksData.tasks.map((t) => t.id);
 			const analysisTaskIds = complexityAnalysis.map((a) => a.taskId);
