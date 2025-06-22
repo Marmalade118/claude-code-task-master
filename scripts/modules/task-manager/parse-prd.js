@@ -147,12 +147,25 @@ function parsePRDIntoSections(prdContent) {
  * Group sections into task batches based on size and content
  * @param {Array} sections - Parsed sections
  * @param {number} totalTasks - Total number of tasks to generate
+ * @param {boolean} oneTaskPerSection - If true, create one task per section
  * @returns {Array<{name: string, sections: Array, suggestedTasks: number}>}
  */
-function groupSectionsForTasks(sections, totalTasks) {
+function groupSectionsForTasks(sections, totalTasks, oneTaskPerSection = false) {
 	// Filter out overview section for task counting
 	const taskSections = sections.filter(s => !s.isOverview);
 	const overview = sections.find(s => s.isOverview);
+	
+	// If oneTaskPerSection is true, create one group per section
+	if (oneTaskPerSection) {
+		return taskSections.map(section => ({
+			name: section.title,
+			sections: [section],
+			lineCount: section.lineCount,
+			suggestedTasks: 1,
+			overview: overview?.content || '',
+			isLarge: true
+		}));
+	}
 	
 	// If we have way more sections than tasks requested, we need to be more aggressive about grouping
 	const tooManySections = taskSections.length > totalTasks * 1.5;
@@ -268,6 +281,7 @@ async function parsePRD(prdPath, tasksPath, numTasks, options = {}) {
 		force = false,
 		append = false,
 		research = false,
+		autoCount = false,
 		spinner = null
 	} = options;
 	const isMCP = !!mcpLog;
@@ -360,24 +374,40 @@ async function parsePRD(prdPath, tasksPath, numTasks, options = {}) {
 		const isClaudeCode = currentProvider === 'claude-code';
 		let useAppend = append;
 		let useForce = force;
-		let tasksPerBatch = numTasks; // Start with the requested number of tasks
-
+		
 		// Check PRD size for more intelligent batching
 		const prdSizeKB = Math.round(Buffer.byteLength(prdContent) / 1024);
 		const prdLines = prdContent.split('\n').length;
 		
+		// Auto-detect task count based on sections if requested
+		let effectiveNumTasks = numTasks;
+		if (autoCount || numTasks === 'auto') {
+			const sections = parsePRDIntoSections(prdContent);
+			const taskSections = sections.filter(s => !s.isOverview);
+			// Use section count as task count, with reasonable bounds
+			effectiveNumTasks = Math.max(Math.min(taskSections.length, 50), 3); // Between 3 and 50 tasks
+			report(
+				`Auto-detected ${taskSections.length} sections. Will create ${effectiveNumTasks} tasks.`,
+				'info'
+			);
+		}
+		
+		let tasksPerBatch = effectiveNumTasks; // Start with the requested number of tasks
+		
 		// Debug logging
 		report(
-			`DEBUG: Provider=${currentProvider}, isClaudeCode=${isClaudeCode}, numTasks=${numTasks}, PRD size=${prdSizeKB}KB (${prdLines} lines)`,
+			`DEBUG: Provider=${currentProvider}, isClaudeCode=${isClaudeCode}, numTasks=${effectiveNumTasks}, PRD size=${prdSizeKB}KB (${prdLines} lines)`,
 			'info'
 		);
 		
-		// Check if we should use section-based parsing for large PRDs
-		const useSectionParsing = (prdSizeKB > 30 || prdLines > 1000) && numTasks >= 10;
+		// Check if we should use section-based parsing for large PRDs or when auto-count is used
+		const useSectionParsing = ((prdSizeKB > 30 || prdLines > 1000) && effectiveNumTasks >= 10) || autoCount;
 		
 		if (useSectionParsing) {
 			report(
-				`Large PRD detected (${prdSizeKB}KB, ${prdLines} lines). Using section-based parsing for better results.`,
+				autoCount 
+					? `Using section-based parsing with auto-detected ${effectiveNumTasks} tasks.`
+					: `Large PRD detected (${prdSizeKB}KB, ${prdLines} lines). Using section-based parsing for better results.`,
 				'info'
 			);
 			
@@ -389,13 +419,13 @@ async function parsePRD(prdPath, tasksPath, numTasks, options = {}) {
 			);
 			
 			// Preview task distribution
-			const taskGroups = groupSectionsForTasks(sections, numTasks);
+			const taskGroups = groupSectionsForTasks(sections, effectiveNumTasks, autoCount);
 			const actualTaskCount = taskGroups.reduce((sum, g) => sum + g.suggestedTasks, 0);
 			
 			// Warn if task count doesn't match
-			if (actualTaskCount !== numTasks && !isMCP) {
+			if (actualTaskCount !== effectiveNumTasks && !isMCP && !autoCount) {
 				report(
-					`Warning: Due to section structure, this will create ${actualTaskCount} tasks instead of ${numTasks}.`,
+					`Warning: Due to section structure, this will create ${actualTaskCount} tasks instead of ${effectiveNumTasks}.`,
 					'warn'
 				);
 				
@@ -446,15 +476,17 @@ async function parsePRD(prdPath, tasksPath, numTasks, options = {}) {
 					force: useForce,
 					append: useAppend,
 					research,
+					autoCount,
 					spinner
 				}
 			);
 		}
 		
 		// Original batching logic for smaller PRDs or when not using claude-code
-		if (isClaudeCode && numTasks >= 5 && !append) {
+		// Skip auto-batching when using auto-count or section parsing
+		if (isClaudeCode && effectiveNumTasks >= 5 && !append && !autoCount && !useSectionParsing) {
 			report(
-				`Detected claude-code provider with ${numTasks} tasks. PRD size: ${prdSizeKB}KB, ${prdLines} lines.`,
+				`Detected claude-code provider with ${effectiveNumTasks} tasks. PRD size: ${prdSizeKB}KB, ${prdLines} lines.`,
 				'info'
 			);
 			report(
@@ -470,7 +502,7 @@ async function parsePRD(prdPath, tasksPath, numTasks, options = {}) {
 			} else if (prdSizeKB > 50 || prdLines > 1500) {
 				// Very large PRD - use tiny batches
 				tasksPerBatch = 2;
-			} else if (prdSizeKB > 30 || prdLines > 1000 || numTasks >= 20) {
+			} else if (prdSizeKB > 30 || prdLines > 1000 || effectiveNumTasks >= 20) {
 				// Large PRD or many tasks - use small batches
 				tasksPerBatch = 3;
 			} else {
@@ -486,16 +518,16 @@ async function parsePRD(prdPath, tasksPath, numTasks, options = {}) {
 
 		// Handle batching for claude-code provider
 		report(
-			`DEBUG: Batching check - isClaudeCode=${isClaudeCode}, numTasks=${numTasks}, tasksPerBatch=${tasksPerBatch}, should batch=${isClaudeCode && numTasks >= 5 && tasksPerBatch < numTasks}`,
+			`DEBUG: Batching check - isClaudeCode=${isClaudeCode}, numTasks=${effectiveNumTasks}, tasksPerBatch=${tasksPerBatch}, should batch=${isClaudeCode && effectiveNumTasks >= 5 && tasksPerBatch < effectiveNumTasks}`,
 			'info'
 		);
 		
-		if (isClaudeCode && numTasks >= 5 && tasksPerBatch < numTasks) {
-			report(`Entering batch mode: ${numTasks} tasks in batches of ${tasksPerBatch}`, 'info');
+		if (isClaudeCode && effectiveNumTasks >= 5 && tasksPerBatch < effectiveNumTasks) {
+			report(`Entering batch mode: ${effectiveNumTasks} tasks in batches of ${tasksPerBatch}`, 'info');
 			return await parsePRDInBatches(
 				prdPath,
 				tasksPath,
-				numTasks,
+				effectiveNumTasks,
 				tasksPerBatch,
 				prdContent,
 				existingTasks,
@@ -528,7 +560,7 @@ Your task breakdown should incorporate this research, resulting in more detailed
 		// Base system prompt for PRD parsing
 		const systemPrompt = `You are an AI assistant specialized in analyzing Product Requirements Documents (PRDs) and generating a structured, logically ordered, dependency-aware and sequenced list of development tasks in JSON format.${researchPromptAddition}
 
-Analyze the provided PRD content and generate approximately ${tasksPerBatch} top-level development tasks. If the complexity or the level of detail of the PRD is high, generate more tasks relative to the complexity of the PRD
+Analyze the provided PRD content and generate approximately ${effectiveNumTasks} top-level development tasks. If the complexity or the level of detail of the PRD is high, generate more tasks relative to the complexity of the PRD
 Each task should represent a logical unit of work needed to implement the requirements and focus on the most direct and effective way to implement the requirements without unnecessary complexity or overengineering. Include pseudo-code, implementation details, and test strategy for each task. Find the most up to date information to implement each task.
 Assign sequential IDs starting from ${nextId}. Infer title, description, details, and test strategy for each task based *only* on the PRD content.
 Set status to 'pending', dependencies to an empty array [], and priority to 'medium' initially for all tasks.
@@ -547,7 +579,7 @@ Each task should follow this JSON structure:
 }
 
 Guidelines:
-1. Unless complexity warrants otherwise, create exactly ${tasksPerBatch} tasks, numbered sequentially starting from ${nextId}
+1. Unless complexity warrants otherwise, create exactly ${effectiveNumTasks} tasks, numbered sequentially starting from ${nextId}
 2. Each task should be atomic and focused on a single responsibility following the most up to date best practices and standards
 3. Order tasks logically - consider dependencies and implementation sequence
 4. Early tasks should focus on setup, core functionality first, then advanced features
@@ -560,7 +592,7 @@ Guidelines:
 11. Always aim to provide the most direct path to implementation, avoiding over-engineering or roundabout approaches${research ? '\n12. For each task, include specific, actionable guidance based on current industry standards and best practices discovered through research' : ''}`;
 
 		// Build user prompt with PRD content
-		const userPrompt = `Here's the Product Requirements Document (PRD) to break down into approximately ${tasksPerBatch} tasks, starting IDs from ${nextId}:${research ? '\n\nRemember to thoroughly research current best practices and technologies before task breakdown to provide specific, actionable implementation details.' : ''}\n\n${prdContent}\n\n
+		const userPrompt = `Here's the Product Requirements Document (PRD) to break down into approximately ${effectiveNumTasks} tasks, starting IDs from ${nextId}:${research ? '\n\nRemember to thoroughly research current best practices and technologies before task breakdown to provide specific, actionable implementation details.' : ''}\n\n${prdContent}\n\n
 
 Return your response in this format:
 {
@@ -575,7 +607,7 @@ Return your response in this format:
     ],
     "metadata": {
         "projectName": "PRD Implementation",
-        "totalTasks": ${tasksPerBatch},
+        "totalTasks": ${effectiveNumTasks},
         "sourceFile": "${prdPath}",
         "generatedAt": "YYYY-MM-DD"
     }
@@ -1016,7 +1048,7 @@ async function parsePRDWithSections(
 	startId,
 	options
 ) {
-	const { reportProgress, mcpLog, session, projectRoot, force, append, research } = options;
+	const { reportProgress, mcpLog, session, projectRoot, force, append, research, autoCount } = options;
 	const isMCP = !!mcpLog;
 	
 	const logFn = mcpLog || {
@@ -1035,7 +1067,7 @@ async function parsePRDWithSections(
 	};
 	
 	// Group sections into task batches
-	const taskGroups = groupSectionsForTasks(sections, totalTasks);
+	const taskGroups = groupSectionsForTasks(sections, totalTasks, autoCount);
 	report(`Organized PRD into ${taskGroups.length} task groups:`, 'info');
 	taskGroups.forEach(group => {
 		report(`  - ${group.name}: ${group.suggestedTasks} tasks`, 'info');
@@ -1169,8 +1201,9 @@ Return response in this format:
 		}
 		
 		// Write intermediate results after each section
+		// Always write existingTasks + allGeneratedTasks to avoid duplicates
 		const intermediateData = {
-			tasks: append || !isFirstGroup ? [...existingTasks, ...allGeneratedTasks] : allGeneratedTasks
+			tasks: [...existingTasks, ...allGeneratedTasks]
 		};
 		writeJSON(tasksPath, intermediateData);
 		isFirstGroup = false;

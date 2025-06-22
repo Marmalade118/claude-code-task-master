@@ -512,15 +512,20 @@ function registerCommands(programInstance) {
 			'-r, --research',
 			'Use Perplexity AI for research-backed task generation, providing more comprehensive and accurate task breakdown'
 		)
+		.option(
+			'--auto-count',
+			'Automatically determine task count based on PRD sections (recommended)'
+		)
 		.action(async (file, options) => {
 			// Use input option if file argument not provided
 			const inputFile = file || options.input;
 			const defaultPrdPath = 'scripts/prd.txt';
-			const numTasks = parseInt(options.numTasks, 10);
+			const numTasks = options.autoCount ? 'auto' : parseInt(options.numTasks, 10);
 			const outputPath = options.output;
 			const force = options.force || false;
 			const append = options.append || false;
 			const research = options.research || false;
+			const autoCount = options.autoCount || false;
 			let useForce = force;
 			let useAppend = append;
 
@@ -610,7 +615,11 @@ function registerCommands(programInstance) {
 				if (!(await confirmOverwriteIfNeeded())) return;
 
 				console.log(chalk.blue(`Parsing PRD file: ${inputFile}`));
-				console.log(chalk.blue(`Generating ${numTasks} tasks...`));
+				if (autoCount) {
+					console.log(chalk.blue('Auto-detecting task count based on PRD sections...'));
+				} else {
+					console.log(chalk.blue(`Generating ${numTasks} tasks...`));
+				}
 				if (append) {
 					console.log(chalk.blue('Appending to existing tasks...'));
 				}
@@ -620,6 +629,7 @@ function registerCommands(programInstance) {
 					append: useAppend,
 					force: useForce,
 					research: research,
+					autoCount: autoCount,
 					projectRoot: process.cwd(), // Add projectRoot for proper provider detection
 					spinner: spinner // Pass spinner to handle pausing
 				});
