@@ -1,13 +1,13 @@
 {
-	"name": "task-master-ai",
-	"version": "0.15.0",
+	"name": "task-master-cc",
+	"version": "0.15.1",
 	"description": "A task management system for ambitious AI-driven development that doesn't overwhelm and confuse Cursor.",
 	"main": "index.js",
 	"type": "module",
 	"bin": {
 		"task-master": "bin/task-master.js",
 		"task-master-mcp": "mcp-server/server.js",
-		"task-master-ai": "mcp-server/server.js"
+		"task-master-cc": "mcp-server/server.js"
 	},
 	"scripts": {
 		"test": "node --experimental-vm-modules node_modules/.bin/jest",
@@ -75,11 +75,11 @@
 	},
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/eyaltoledano/claude-task-master.git"
+		"url": "git+https://github.com/reactiongears/claude-code-task-master.git"
 	},
-	"homepage": "https://github.com/eyaltoledano/claude-task-master#readme",
+	"homepage": "https://github.com/reactiongears/claude-code-task-master#readme",
 	"bugs": {
-		"url": "https://github.com/eyaltoledano/claude-task-master/issues"
+		"url": "https://github.com/reactiongears/claude-code-task-master/issues"
 	},
 	"files": [
 		"scripts/**",

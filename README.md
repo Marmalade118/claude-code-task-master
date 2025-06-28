@@ -1,24 +1,27 @@
-# Task Master [![GitHub stars](https://img.shields.io/github/stars/eyaltoledano/claude-task-master?style=social)](https://github.com/eyaltoledano/claude-task-master/stargazers)
-
-[![CI](https://github.com/eyaltoledano/claude-task-master/actions/workflows/ci.yml/badge.svg)](https://github.com/eyaltoledano/claude-task-master/actions/workflows/ci.yml) [![npm version](https://badge.fury.io/js/task-master-ai.svg)](https://badge.fury.io/js/task-master-ai) [![Discord](https://dcbadge.limes.pink/api/server/https://discord.gg/taskmasterai?style=flat)](https://discord.gg/taskmasterai) [![License: MIT with Commons Clause](https://img.shields.io/badge/license-MIT%20with%20Commons%20Clause-blue.svg)](LICENSE)
-
-### By [@eyaltoledano](https://x.com/eyaltoledano) & [@RalphEcom](https://x.com/RalphEcom)
-
-[![Twitter Follow](https://img.shields.io/twitter/follow/eyaltoledano?style=flat)](https://x.com/eyaltoledano)
-[![Twitter Follow](https://img.shields.io/twitter/follow/RalphEcom?style=flat)](https://x.com/RalphEcom)
+```
+  _____         _      __  __           _               ____ ____ 
+ |_   _|_ _ ___| | __ |  \/  | __ _ ___| |_ ___ _ __   / ___/ ___|
+   | |/ _` / __| |/ / | |\/| |/ _` / __| __/ _ \ '__| | |  | |    
+   | | (_| \__ \   <  | |  | | (_| \__ \ ||  __/ |    | |__| |___ 
+   |_|\__,_|___/_|\_\ |_|  |_|\__,_|___/\__\___|_|     \____\____|
+```
+[![GitHub stars](https://img.shields.io/github/stars/eyaltoledano/claude-task-master?style=social)](https://github.com/eyaltoledano/claude-task-master/stargazers)
 
 A task management system for AI-driven development with Claude, designed to work seamlessly with Cursor AI.
 
+
+[![CI](https://github.com/eyaltoledano/claude-task-master/actions/workflows/ci.yml/badge.svg)](https://github.com/eyaltoledano/claude-task-master/actions/workflows/ci.yml) [![npm version](https://badge.fury.io/js/task-master-cc.svg)](https://badge.fury.io/js/task-master-cc) [![Discord](https://dcbadge.limes.pink/api/server/https://discord.gg/taskmasterai?style=flat)](https://discord.gg/taskmasterai) [![License: MIT with Commons Clause](https://img.shields.io/badge/license-MIT%20with%20Commons%20Clause-blue.svg)](LICENSE)
+
+### Originally By [@eyaltoledano](https://x.com/eyaltoledano) & [@RalphEcom](https://x.com/RalphEcom)
+#### Humbly modifid by [@ReactionGears](https://reactiongears.com)
+
+ **Claude Code Subscription Support**
+ This fork adds support for Claude Code subscriptions, allowing users to leverage their Anthropic subscription without needing separate API tokens. See [Claude Code Integration](docs/claude-code-integration.md) for details.
+
 ## Requirements
 
-Either:
+- Claude Code Subscription
 
-- Claude Code CLI (recommended)
-- OR Anthropic API key (Claude API)
-
-Optional:
-
-- OpenAI SDK (for Perplexity API integration, optional)
 
 ## Quick Start
 
@@ -40,9 +43,9 @@ MCP (Model Control Protocol) lets you run Task Master directly from your editor.
 ```jsonc
 {
 	"mcpServers": {
-		"taskmaster-ai": {
+		"task-master-cc": {
 			"command": "npx",
-			"args": ["-y", "--package=task-master-ai", "task-master-ai"],
+			"args": ["-y", "--package=task-master-cc", "task-master-cc"],
 			"env": {
 				"ANTHROPIC_API_KEY": "YOUR_ANTHROPIC_API_KEY_HERE",
 				"PERPLEXITY_API_KEY": "YOUR_PERPLEXITY_API_KEY_HERE",
@@ -67,9 +70,9 @@ MCP (Model Control Protocol) lets you run Task Master directly from your editor.
 ```jsonc
 {
 	"servers": {
-		"taskmaster-ai": {
+		"task-master-cc": {
 			"command": "npx",
-			"args": ["-y", "--package=task-master-ai", "task-master-ai"],
+			"args": ["-y", "--package=task-master-cc", "task-master-cc"],
 			"env": {
 				"ANTHROPIC_API_KEY": "YOUR_ANTHROPIC_API_KEY_HERE",
 				"PERPLEXITY_API_KEY": "YOUR_PERPLEXITY_API_KEY_HERE",
@@ -135,10 +138,10 @@ Use your AI assistant to:
 
 ```bash
 # Install globally
-npm install -g task-master-ai
+npm install -g task-master-cc
 
 # OR install locally within your project
-npm install task-master-ai
+npm install task-master-cc
 ```
 
 #### Initialize a new project
@@ -204,12 +207,12 @@ node scripts/init.js
 ## Contributors
 
 <a href="https://github.com/eyaltoledano/claude-task-master/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=eyaltoledano/claude-task-master" alt="Task Master project contributors" />
+  <img src="https://contrib.rocks/image?repo=reactiongears/claude-code-task-master" alt="Task Master project contributors" />
 </a>
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=eyaltoledano/claude-task-master&type=Timeline)](https://www.star-history.com/#eyaltoledano/claude-task-master&Timeline)
+[![Star History Chart](https://api.star-history.com/svg?repos=eyaltoledano/claude-task-master&type=Timeline)](https://www.star-history.com/#reactiongears/claude-code-task-master&Timeline)
 
 ## Licensing
 

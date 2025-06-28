@@ -52,7 +52,7 @@ function displayBanner() {
 	if (isSilentMode()) return;
 
 	console.clear();
-	const bannerText = figlet.textSync('Task Master AI', {
+	const bannerText = figlet.textSync('Task Master CC', {
 		font: 'Standard',
 		horizontalLayout: 'default',
 		verticalLayout: 'default'
@@ -62,7 +62,7 @@ function displayBanner() {
 
 	// Add creator credit line below the banner
 	console.log(
-		chalk.dim('by ') + chalk.cyan.underline('https://x.com/eyaltoledano')
+		chalk.dim('by ') + chalk.cyan.underline('http://www.ReactionGears.com')
 	);
 
 	console.log(
@@ -759,9 +759,9 @@ function setupMCPConfiguration(targetDir) {
 
 	// New MCP config to be added - references the installed package
 	const newMCPServer = {
-		'task-master-ai': {
+		'task-master-cc': {
 			command: 'npx',
-			args: ['-y', '--package=task-master-ai', 'task-master-ai'],
+			args: ['-y', '--package=task-master-cc', 'task-master-cc'],
 			env: {
 				ANTHROPIC_API_KEY: 'ANTHROPIC_API_KEY_HERE',
 				PERPLEXITY_API_KEY: 'PERPLEXITY_API_KEY_HERE',
@@ -796,27 +796,27 @@ function setupMCPConfiguration(targetDir) {
 				(server) =>
 					server.args &&
 					server.args.some(
-						(arg) => typeof arg === 'string' && arg.includes('task-master-ai')
+						(arg) => typeof arg === 'string' && arg.includes('task-master-cc')
 					)
 			);
 
 			if (hasMCPString) {
 				log(
 					'info',
-					'Found existing task-master-ai MCP configuration in mcp.json, leaving untouched'
+					'Found existing task-master-cc MCP configuration in mcp.json, leaving untouched'
 				);
 				return; // Exit early, don't modify the existing configuration
 			}
 
-			// Add the task-master-ai server if it doesn't exist
-			if (!mcpConfig.mcpServers['task-master-ai']) {
-				mcpConfig.mcpServers['task-master-ai'] = newMCPServer['task-master-ai'];
+			// Add the task-master-cc server if it doesn't exist
+			if (!mcpConfig.mcpServers['task-master-cc']) {
+				mcpConfig.mcpServers['task-master-cc'] = newMCPServer['task-master-cc'];
 				log(
 					'info',
-					'Added task-master-ai server to existing MCP configuration'
+					'Added task-master-cc server to existing MCP configuration'
 				);
 			} else {
-				log('info', 'task-master-ai server already configured in mcp.json');
+				log('info', 'task-master-cc server already configured in mcp.json');
 			}
 
 			// Write the updated configuration
@@ -853,7 +853,7 @@ function setupMCPConfiguration(targetDir) {
 	}
 
 	// Add note to console about MCP integration
-	log('info', 'MCP server will use the installed task-master-ai package');
+	log('info', 'MCP server will use the installed task-master-cc package');
 }
 
 // Ensure necessary functions are exported

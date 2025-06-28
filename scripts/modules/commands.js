@@ -2423,25 +2423,7 @@ function setupCLI() {
 	const programInstance = program
 		.name('dev')
 		.description('AI-driven development task management')
-		.version(() => {
-			// Read version directly from package.json ONLY
-			try {
-				const packageJsonPath = path.join(process.cwd(), 'package.json');
-				if (fs.existsSync(packageJsonPath)) {
-					const packageJson = JSON.parse(
-						fs.readFileSync(packageJsonPath, 'utf8')
-					);
-					return packageJson.version;
-				}
-			} catch (error) {
-				// Silently fall back to 'unknown'
-				log(
-					'warn',
-					'Could not read package.json for version info in .version()'
-				);
-			}
-			return 'unknown'; // Default fallback if package.json fails
-		})
+		.version(getTaskMasterVersion())
 		.helpOption('-h, --help', 'Display help')
 		.addHelpCommand(false); // Disable default help command
 
@@ -2469,7 +2451,7 @@ async function checkForUpdate() {
 		// Get the latest version from npm registry
 		const options = {
 			hostname: 'registry.npmjs.org',
-			path: '/task-master-ai',
+			path: '/task-master-cc',
 			method: 'GET',
 			headers: {
 				Accept: 'application/vnd.npm.install-v1+json' // Lightweight response
